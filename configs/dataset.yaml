@@ -1,0 +1,32 @@
+# ==============================================================================
+# MFVLR Dataset Configuration
+# ==============================================================================
+
+dataset:
+  # ASSUMPTION_FROM_PAPER_GAP: Configurable dataset paths and mappings
+  dataset_name: "genface"
+  root_dir: "data/GenFace"
+  split: "train"                     # "train", "val", "test"
+  image_size: 224
+
+  # Hierarchical prompt settings
+  prompt:
+    use_l1: true
+    use_l2: true
+    use_l3: true
+    use_l4: true
+
+  # Preprocessing & augmentation settings
+  preprocessing:
+    mean: [0.5, 0.5, 0.5]
+    std: [0.5, 0.5, 0.5]
+    scale_to_unit_interval: true     # [0, 1] range
+
+  augmentation:
+    horizontal_flip: false           # Disabled by default
+    random_crop: false
+
+  # Mask generation settings
+  mask:
+    gt_threshold: 0.1                # PAPER_SPECIFIED
+    grayscale_weights: [0.299, 0.587, 0.114] # Luminance weights

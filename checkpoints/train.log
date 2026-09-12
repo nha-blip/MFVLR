@@ -1,0 +1,88 @@
+[2026-09-11 23:01:09] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-11 23:01:09] [MFVLR_Train] [INFO] Train dataset size: 16, Val dataset size: 8
+[2026-09-11 23:01:10] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 08:34:48] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 08:34:48] [MFVLR_Train] [INFO] Train dataset size: 16, Val dataset size: 8
+[2026-09-12 08:34:49] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 08:34:53] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 718.4789428710938, 'loss_fd': 2.997117757797241, 'loss_lr': 513.8177490234375, 'loss_cmc': 193.08251953125, 'loss_fl': 0.7431511878967285, 'loss_ar': 0.0925012081861496, 'loss_kl': 7.7458343505859375}
+[2026-09-12 08:34:53] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-12 08:34:55] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 50.0, 'auc': 18.75, 'miou': 32.76669438629411, 'iou_class_0': 27.59737226070121, 'iou_class_1': 37.93601651188702}
+[2026-09-12 08:34:55] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.
+[2026-09-12 11:01:32] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 11:01:32] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:01:33] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 11:02:03] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 11:02:03] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:02:03] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 11:02:07] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 141.7174530029297, 'loss_fd': 3.560934066772461, 'loss_lr': 50.991615295410156, 'loss_cmc': 74.64059448242188, 'loss_fl': 0.6827158331871033, 'loss_ar': 0.11970178782939911, 'loss_kl': 11.72188949584961}
+[2026-09-12 11:02:07] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-12 11:02:58] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 11:02:58] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:02:59] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 11:03:02] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 141.7174530029297, 'loss_fd': 3.560934066772461, 'loss_lr': 50.991615295410156, 'loss_cmc': 74.64059448242188, 'loss_fl': 0.6827158331871033, 'loss_ar': 0.11970178782939911, 'loss_kl': 11.72188949584961}
+[2026-09-12 11:03:02] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-12 11:03:05] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 25.0, 'auc': 75.0, 'miou': 29.786973514245908, 'iou_class_0': 20.062265603403727, 'iou_class_1': 39.511681425088085}
+[2026-09-12 11:03:05] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.
+[2026-09-12 11:03:25] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 11:03:25] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:03:26] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 11:03:29] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 141.7174530029297, 'loss_fd': 3.560934066772461, 'loss_lr': 50.991615295410156, 'loss_cmc': 74.64059448242188, 'loss_fl': 0.6827158331871033, 'loss_ar': 0.11970178782939911, 'loss_kl': 11.72188949584961}
+[2026-09-12 11:03:29] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-12 11:03:31] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 25.0, 'auc': 75.0, 'miou': 29.786973514245908, 'iou_class_0': 20.062265603403727, 'iou_class_1': 39.511681425088085}
+[2026-09-12 11:03:31] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.
+[2026-09-12 11:06:33] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:06:33] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:06:34] [MFVLR_Train] [INFO] Starting training for 30 epochs (from epoch 0)...
+[2026-09-12 11:06:34] [MFVLR_Train] [INFO] --- Epoch 1/30 (LR: 1.000000e-04) ---
+[2026-09-12 11:09:05] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:09:05] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:09:06] [MFVLR_Train] [INFO] Starting training for 30 epochs (from epoch 0)...
+[2026-09-12 11:09:06] [MFVLR_Train] [INFO] --- Epoch 1/30 (LR: 1.000000e-04) ---
+[2026-09-12 11:13:24] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 11:13:24] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:13:25] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 11:13:28] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 141.7174530029297, 'loss_fd': 3.560934066772461, 'loss_lr': 50.991615295410156, 'loss_cmc': 74.64059448242188, 'loss_fl': 0.6827158331871033, 'loss_ar': 0.11970178782939911, 'loss_kl': 11.72188949584961}
+[2026-09-12 11:13:28] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-12 11:13:31] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 25.0, 'auc': 75.0, 'miou': 29.786973514245908, 'iou_class_0': 20.062265603403727, 'iou_class_1': 39.511681425088085}
+[2026-09-12 11:13:31] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.
+[2026-09-12 11:18:29] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:18:30] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:18:31] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-12 11:18:31] [MFVLR_Train] [INFO] Starting training for 30 epochs (from epoch 0)...
+[2026-09-12 11:18:31] [MFVLR_Train] [INFO] --- Epoch 1/30 (LR: 1.000000e-04) ---
+[2026-09-12 11:20:38] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:20:38] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:20:39] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-12 11:20:39] [MFVLR_Train] [INFO] Starting training for 30 epochs (from epoch 0)...
+[2026-09-12 11:20:39] [MFVLR_Train] [INFO] --- Epoch 1/30 (LR: 1.000000e-04) ---
+[2026-09-12 11:22:21] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:22:21] [MFVLR_Train] [INFO] Subsampled train dataset to 5000 samples for fast training.
+[2026-09-12 11:22:21] [MFVLR_Train] [INFO] Train dataset size: 5000, Val dataset size: 12000
+[2026-09-12 11:22:22] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-12 11:22:22] [MFVLR_Train] [INFO] Starting training for 5 epochs (from epoch 0)...
+[2026-09-12 11:22:22] [MFVLR_Train] [INFO] --- Epoch 1/5 (LR: 1.000000e-04) ---
+[2026-09-12 11:25:59] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:25:59] [MFVLR_Train] [INFO] Subsampled train dataset to 5000 samples for fast training.
+[2026-09-12 11:25:59] [MFVLR_Train] [INFO] Train dataset size: 5000, Val dataset size: 12000
+[2026-09-12 11:26:00] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-12 11:26:00] [MFVLR_Train] [INFO] Starting training for 5 epochs (from epoch 0)...
+[2026-09-12 11:26:00] [MFVLR_Train] [INFO] --- Epoch 1/5 (LR: 1.000000e-04) ---
+[2026-09-12 11:57:14] [MFVLR_Train] [INFO] Using device: cpu
+[2026-09-12 11:57:14] [MFVLR_Train] [INFO] Train dataset size: 96000, Val dataset size: 12000
+[2026-09-12 11:57:15] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-12 11:57:19] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 141.7174530029297, 'loss_fd': 3.560934066772461, 'loss_lr': 50.991615295410156, 'loss_cmc': 74.64059448242188, 'loss_fl': 0.6827158331871033, 'loss_ar': 0.11970178782939911, 'loss_kl': 11.72188949584961}
+[2026-09-12 11:57:19] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-12 11:57:23] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 25.0, 'auc': 75.0, 'miou': 29.786973514245908, 'iou_class_0': 20.062265603403727, 'iou_class_1': 39.511681425088085}
+[2026-09-12 11:57:23] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.
+[2026-09-12 11:59:03] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:59:04] [MFVLR_Train] [INFO] Subsampled train dataset to 5000 samples for fast training.
+[2026-09-12 11:59:04] [MFVLR_Train] [INFO] Train dataset size: 5000, Val dataset size: 12000
+[2026-09-12 11:59:05] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-12 11:59:05] [MFVLR_Train] [INFO] Starting training for 5 epochs (from epoch 0)...
+[2026-09-12 11:59:05] [MFVLR_Train] [INFO] --- Epoch 1/5 (LR: 1.000000e-04) ---
+[2026-09-12 11:59:41] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-12 11:59:41] [MFVLR_Train] [INFO] Subsampled train dataset to 5000 samples for fast training.
+[2026-09-12 11:59:41] [MFVLR_Train] [INFO] Train dataset size: 5000, Val dataset size: 12000
+[2026-09-12 11:59:42] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-12 11:59:42] [MFVLR_Train] [INFO] Starting training for 5 epochs (from epoch 0)...
+[2026-09-12 11:59:42] [MFVLR_Train] [INFO] --- Epoch 1/5 (LR: 1.000000e-04) ---

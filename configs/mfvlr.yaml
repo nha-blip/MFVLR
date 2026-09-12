@@ -1,0 +1,82 @@
+model:
+  image_size: 224
+  in_channels: 3
+  local_channels: 1024
+  local_height: 14
+  local_width: 14
+  embed_dim: 512
+  image_transformer_blocks: 4
+  language_encoder_blocks: 12
+  language_decoder_blocks: 7
+  vocab_size: 49408
+  max_text_tokens: 308
+  num_classes: 2
+  mask_channels: 2
+  image_attention_heads: 8
+  language_attention_heads: 8
+  vim_heads: 8
+  dim_feedforward: 2048
+  dropout: 0.0
+  activation: gelu
+  unet_encoder_channels:
+  - 128
+  - 256
+  - 512
+  - 1024
+  unet_decoder_channels:
+  - 512
+  - 256
+  - 128
+  - 64
+  norm_num_groups: 32
+prompt:
+  levels:
+  - 1
+  - 2
+  - 3
+  - 4
+  packing_strategy: 4x77_concat
+  tokenizer_type: clip
+loss:
+  lambda_fd: 1.0
+  lambda_lr: 1.0
+  lambda_cmc: 1.0
+  lambda_fl: 1.0
+  lambda_ar: 1.0
+  lambda_kl: 1.0
+  kl_temperature: 0.5
+cmc:
+  initial_temperature: 0.07
+  trainable_temperature: true
+  similarity: dot_product
+  l2_normalize: false
+mask:
+  gt_threshold: 0.1
+dataset:
+  root: "data/DeepFakeFace"
+  train_manifest: "data/DeepFakeFace/train_manifest.jsonl"
+  val_manifest: "data/DeepFakeFace/val_manifest.jsonl"
+  test_manifest: "data/DeepFakeFace/test_manifest.jsonl"
+  real_class_index: 0
+  fake_class_index: 1
+training:
+  batch_size: 8
+  optimizer: adam
+  learning_rate: 0.0001
+  lr: 0.0001
+  weight_decay: 0.001
+  lr_step_size: 15
+  lr_gamma: 0.1
+  scheduler:
+    step_size: 15
+    gamma: 0.1
+  epochs: null
+  amp: true
+  num_workers: 0
+  seed: 42
+  grad_clip_norm: 1.0
+  output_dir: checkpoints
+inference:
+  real_class_index: 0
+  fake_class_index: 1
+  save_mask: true
