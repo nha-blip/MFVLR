@@ -35,7 +35,10 @@ class LanguageEmbeddings(nn.Module):
         self.max_text_tokens = max_text_tokens
 
         # Vocabulary embedding matrix W_voc in R^(s x d)
+        # ASSUMPTION_FROM_PAPER_GAP: Initialize token embedding with std=0.02 (standard CLIP/Transformer)
+        # to prevent vocabulary logits explosion and loss_lr divergence.
         self.token_embed = nn.Embedding(vocab_size, embed_dim)
+        nn.init.trunc_normal_(self.token_embed.weight, std=pos_init_std)
 
         # Learnable positional embedding P_e in R^(1 x n x d)
         # ASSUMPTION_FROM_PAPER_GAP: Truncated normal initialization

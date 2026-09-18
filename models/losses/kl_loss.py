@@ -40,27 +40,32 @@ class KLSemanticAlignmentLoss(nn.Module):
         Returns:
             Scalar non-negative KL loss.
         """
-        # 1. Scaled logits with tau = 0.5
-        scaled_t_l = t_l / self.temperature
-        scaled_t_lpre = t_lpre / self.temperature
+        # 1. Cast to float32 to prevent overflow in AMP FP16
+        t_l_f32 = t_l.float()
+        t_lpre_f32 = t_lpre.float()
 
-        # 2. Probability distributions
-        # Teacher: P = softmax(T_l / 0.5)
-        P = F.softmax(scaled_t_l, dim=-1)
+        # 2. Scaled logits with tau = 0.5
+        scaled_t_l = t_l_f32 / self.temperature
+        scaled_t_lpre = t_lpre_f32 / self.temperature
+
+        # 3. Probability distributions in log-space for numerical stability
         log_P = F.log_softmax(scaled_t_l, dim=-1)
-
-        # Student: log_Q = log_softmax(T_lpre / 0.5)
         log_Q = F.log_softmax(scaled_t_lpre, dim=-1)
 
-        # 3. D_KL(P || Q) = sum_k P_k * (log_P_k - log_Q_k)
-        if self.reduction == "batchmean":
-            # PyTorch F.kl_div(input=log_Q, target=P) evaluates sum P * (log P - log Q) / B
-            loss = F.kl_div(log_Q, P, reduction="batchmean")
-        elif self.reduction == "mean":
-            loss = (P * (log_P - log_Q)).sum(dim=-1).mean()
-        elif self.reduction == "sum":
-            loss = (P * (log_P - log_Q)).sum()
+        # 4. D_KL(P || Q) with log_target=True
+        if self.reduction in ("batchmean", "mean", "sum"):
+            loss = F.kl_div(
+                input=log_Q,
+                target=log_P,
+                log_target=True,
+                reduction=self.reduction,
+            )
         else:
-            loss = (P * (log_P - log_Q)).sum(dim=-1)
+            loss = F.kl_div(
+                input=log_Q,
+                target=log_P,
+                log_target=True,
+                reduction="none",
+            ).sum(dim=-1)
 
         return loss

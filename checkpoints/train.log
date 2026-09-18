@@ -86,3 +86,19 @@
 [2026-09-12 11:59:42] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
 [2026-09-12 11:59:42] [MFVLR_Train] [INFO] Starting training for 5 epochs (from epoch 0)...
 [2026-09-12 11:59:42] [MFVLR_Train] [INFO] --- Epoch 1/5 (LR: 1.000000e-04) ---
+[2026-09-17 11:02:32] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-17 11:02:32] [MFVLR_Train] [INFO] Train dataset size: 16, Val dataset size: 8
+[2026-09-17 11:02:33] [MFVLR_Train] [INFO] Automatic Mixed Precision (AMP FP16) ENABLED.
+[2026-09-17 11:02:33] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-17 11:02:37] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 268.6661376953125, 'loss_fd': 2.9964599609375, 'loss_lr': 513.8171997070312, 'loss_cmc': 192.97857666015625, 'loss_fl': 0.743004560470581, 'loss_ar': 0.09250200539827347, 'loss_kl': 7.745017051696777}
+[2026-09-17 11:02:37] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-17 11:02:40] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 50.0, 'auc': 18.75, 'miou': 33.04771888642458, 'iou_class_0': 29.737004723675252, 'iou_class_1': 36.35843304917391}
+[2026-09-17 11:02:40] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.
+[2026-09-18 12:20:54] [MFVLR_Train] [INFO] Using device: cuda
+[2026-09-18 12:20:54] [MFVLR_Train] [INFO] Train dataset size: 28800, Val dataset size: 10000
+[2026-09-18 12:20:55] [MFVLR_Train] [INFO] Precision mode: BF16 (AMP: True, GradScaler: False)
+[2026-09-18 12:20:55] [MFVLR_Train] [INFO] Executing DRY-RUN smoke test (1 training batch)...
+[2026-09-18 12:20:58] [MFVLR_Train] [INFO] Dry-run training step completed successfully. Losses: {'total_loss': 11.221872329711914, 'loss_fd': 0.53125, 'loss_lr': 10.882508277893066, 'loss_cmc': 0.6943359375, 'loss_fl': 0.6796495318412781, 'loss_ar': 0.10505331307649612, 'loss_kl': 5.318682670593262}
+[2026-09-18 12:20:58] [MFVLR_Train] [INFO] Executing dry-run image-only evaluation batch...
+[2026-09-18 12:21:00] [MFVLR_Train] [INFO] Dry-run evaluation metrics: {'acc': 50.0, 'auc': 50.0, 'miou': 26.37052080288723, 'iou_class_0': 3.547804302313228, 'iou_class_1': 49.19323730346124}
+[2026-09-18 12:21:00] [MFVLR_Train] [INFO] DRY-RUN test PASSED. Exiting.

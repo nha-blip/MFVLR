@@ -112,6 +112,7 @@ def train_step(
     device: Optional[torch.device] = None,
     scaler: Optional[Any] = None,
     use_amp: bool = False,
+    precision: str = "fp32",
     return_outputs: bool = False,
 ) -> Union[Dict[str, float], Tuple[Dict[str, float], torch.Tensor, torch.Tensor]]:
     """Execute a single MFVLR training step with forward, loss computation, backward, and optimizer update.
@@ -126,8 +127,10 @@ def train_step(
             - 'label' / 'class_target': Tensor [B]
             - 'mask' / 'mask_target': Tensor [B, 224, 224]
         device: Target computation device (default: device of model parameters).
-        scaler: Optional GradScaler for AMP.
+        scaler: Optional GradScaler for AMP FP16.
         use_amp: Whether to use Automatic Mixed Precision (default: False).
+        precision: Precision mode ('bf16' / 'bfloat16', 'fp16' / 'float16', or 'fp32').
+        return_outputs: Whether to return predicted and ground truth labels.
 
     Returns:
         Dictionary of detached scalar loss values.
@@ -160,8 +163,42 @@ def train_step(
     model.train()
     optimizer.zero_grad()
 
-    if use_amp and scaler is not None and device.type == "cuda":
-        with torch.amp.autocast("cuda"):
+    # Collect all trainable parameters from model and loss_fn (e.g. trainable CMC tau)
+    all_trainable_params = [
+        p for p in list(model.parameters()) + list(loss_fn.parameters())
+        if p.requires_grad
+    ]
+
+    is_cuda = (device.type == "cuda")
+    norm_precision = precision.lower().strip()
+    is_bf16 = norm_precision in ("bf16", "bfloat16") and is_cuda
+    is_fp16 = norm_precision in ("fp16", "float16", "amp") and is_cuda
+
+    if is_bf16:
+        # BFloat16 mode (recommended on modern GPUs like L40, A100, RTX 30/40)
+        # Prevents FP16 overflow/underflow without requiring GradScaler
+        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+            outputs: MFVLROutput = model(image=image, token_ids=token_ids, return_logits=True)
+            losses: TotalLossOutput = loss_fn(
+                y_pre=outputs.y_pre,
+                y_target=class_target,
+                t_pre=outputs.t_pre,
+                target_token_ids=token_ids,
+                i_v=outputs.i_v,
+                t_l=outputs.t_l,
+                m_pre=outputs.m_pre,
+                target_mask=mask_target,
+                i_pre=outputs.i_pre,
+                image=image,
+                t_lpre=outputs.t_lpre,
+            )
+        losses.total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(all_trainable_params, max_norm=1.0)
+        optimizer.step()
+
+    elif is_fp16 and scaler is not None:
+        # FP16 mode with GradScaler
+        with torch.amp.autocast("cuda", dtype=torch.float16):
             outputs: MFVLROutput = model(image=image, token_ids=token_ids, return_logits=True)
             losses: TotalLossOutput = loss_fn(
                 y_pre=outputs.y_pre,
@@ -177,9 +214,13 @@ def train_step(
                 t_lpre=outputs.t_lpre,
             )
         scaler.scale(losses.total_loss).backward()
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(all_trainable_params, max_norm=1.0)
         scaler.step(optimizer)
         scaler.update()
+
     else:
+        # Full precision (FP32)
         outputs: MFVLROutput = model(image=image, token_ids=token_ids, return_logits=True)
         losses: TotalLossOutput = loss_fn(
             y_pre=outputs.y_pre,
@@ -195,6 +236,7 @@ def train_step(
             t_lpre=outputs.t_lpre,
         )
         losses.total_loss.backward()
+        torch.nn.utils.clip_grad_norm_(all_trainable_params, max_norm=1.0)
         optimizer.step()
 
     loss_dict = {
@@ -225,6 +267,7 @@ def train_one_epoch(
     device: Optional[torch.device] = None,
     scaler: Optional[Any] = None,
     use_amp: bool = False,
+    precision: str = "fp32",
     epoch: Optional[int] = None,
     total_epochs: Optional[int] = None,
     logger: Optional[Any] = None,
@@ -288,6 +331,7 @@ def train_one_epoch(
             device=device,
             scaler=scaler,
             use_amp=use_amp,
+            precision=precision,
             return_outputs=True,
         )
         for key, val in step_losses.items():

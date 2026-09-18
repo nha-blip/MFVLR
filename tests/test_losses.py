@@ -319,3 +319,24 @@ def test_mfvlr_total_loss(batch_size, embed_dim):
     assert t_lpre.grad is not None
     assert m_pre.grad is not None
     assert i_pre.grad is not None
+
+
+def test_cross_modal_contrastive_loss_normalized(batch_size, embed_dim):
+    """Verify CrossModalContrastiveLoss with l2_normalize=True produces cosine similarity bounded in [-1, 1]."""
+    loss_fn = CrossModalContrastiveLoss(initial_temperature=0.07, trainable_temperature=True, l2_normalize=True)
+
+    i_v = torch.randn(batch_size, embed_dim, requires_grad=True) * 45.0
+    t_l = torch.randn(batch_size, embed_dim, requires_grad=True) * 60.0
+
+    loss, S = loss_fn(i_v, t_l, return_similarity=True)
+
+    # S values should be bounded in [-1.0, 1.0] due to L2 normalization
+    assert S.max().item() <= 1.0 + 1e-5
+    assert S.min().item() >= -1.0 - 1e-5
+    assert torch.isfinite(loss)
+    assert loss.item() >= 0.0
+
+    loss.backward()
+    assert i_v.grad is not None and torch.isfinite(i_v.grad).all()
+    assert t_l.grad is not None and torch.isfinite(t_l.grad).all()
+

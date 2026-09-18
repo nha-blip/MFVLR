@@ -75,7 +75,9 @@ class MFVLRLoss(nn.Module):
         kl_temperature: float = 0.5,
         cmc_initial_temperature: float = 0.07,
         cmc_trainable_temperature: bool = True,
+        cmc_l2_normalize: bool = True,
         lr_ignore_index: int = -100,
+        fd_class_weights: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.lambda_fd = lambda_fd
@@ -86,7 +88,7 @@ class MFVLRLoss(nn.Module):
         self.lambda_kl = lambda_kl
 
         # Sub-loss modules
-        self.fd_loss = ForgeryDetectionLoss()
+        self.fd_loss = ForgeryDetectionLoss(weight=fd_class_weights)
         self.lr_loss = LanguageReconstructionLoss(ignore_index=lr_ignore_index)
         self.ar_loss = AppearanceReconstructionLoss()
         self.fl_loss = ForgeryLocalizationLoss()
@@ -94,6 +96,7 @@ class MFVLRLoss(nn.Module):
         self.cmc_loss = CrossModalContrastiveLoss(
             initial_temperature=cmc_initial_temperature,
             trainable_temperature=cmc_trainable_temperature,
+            l2_normalize=cmc_l2_normalize,
         )
 
     def forward(

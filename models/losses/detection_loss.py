@@ -15,9 +15,17 @@ import torch.nn.functional as F
 class ForgeryDetectionLoss(nn.Module):
     """Forgery Detection Cross-Entropy Loss (Eq. 26)."""
 
-    def __init__(self, reduction: str = "mean"):
+    def __init__(
+        self,
+        reduction: str = "mean",
+        weight: Optional[torch.Tensor] = None,
+    ):
         super().__init__()
         self.reduction = reduction
+        if weight is not None:
+            self.register_buffer("weight", weight.float())
+        else:
+            self.weight = None
 
     def forward(
         self,
@@ -37,8 +45,11 @@ class ForgeryDetectionLoss(nn.Module):
         if y_target.ndim == 2 and y_target.shape == y_pre.shape:
             y_target = y_target.argmax(dim=-1)
 
+        w = self.weight.to(y_pre.device) if self.weight is not None else None
+
         return F.cross_entropy(
             input=y_pre,
             target=y_target.long(),
+            weight=w,
             reduction=self.reduction,
         )

@@ -35,7 +35,8 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=None, help="Override batch size.")
     parser.add_argument("--lr", type=float, default=None, help="Override learning rate.")
     parser.add_argument("--device", type=str, default=None, help="Device to use ('cpu' or 'cuda').")
-    parser.add_argument("--amp", action="store_true", help="Enable Automatic Mixed Precision (FP16) for faster training.")
+    parser.add_argument("--amp", action="store_true", help="Enable Automatic Mixed Precision for faster training.")
+    parser.add_argument("--precision", type=str, default=None, choices=["bf16", "fp16", "fp32"], help="Precision mode ('bf16', 'fp16', 'fp32'). Defaults to bf16 if supported, else fp16 when --amp is set.")
     parser.add_argument("--num-workers", type=int, default=None, help="Number of DataLoader workers.")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit number of training samples for fast experimentation.")
     parser.add_argument("--output-dir", type=str, default=None, help="Directory to save checkpoints and logs.")
@@ -88,6 +89,8 @@ def main():
 
     if args.amp:
         config.setdefault("training", {})["amp"] = True
+    if args.precision is not None:
+        config.setdefault("training", {})["precision"] = args.precision
     if args.num_workers is not None:
         config.setdefault("training", {})["num_workers"] = args.num_workers
 
@@ -143,18 +146,47 @@ def main():
 
     # 4. Build Model and Loss Module
     model = MFVLR().to(device)
-    loss_fn = MFVLRLoss().to(device)
+    loss_cfg = config.get("loss", {})
+    cmc_cfg = config.get("cmc", {})
+    fd_weights = loss_cfg.get("fd_class_weights")
+    if fd_weights is not None and isinstance(fd_weights, list):
+        fd_weights = torch.tensor(fd_weights, dtype=torch.float32)
 
-    # 5. Build Optimizer, Scheduler, and AMP Scaler
+    cmc_l2_norm = bool(cmc_cfg.get("l2_normalize", True))
+
+    loss_fn = MFVLRLoss(
+        lambda_fd=float(loss_cfg.get("lambda_fd", 1.0)),
+        lambda_lr=float(loss_cfg.get("lambda_lr", 1.0)),
+        lambda_cmc=float(loss_cfg.get("lambda_cmc", 1.0)),
+        lambda_fl=float(loss_cfg.get("lambda_fl", 1.0)),
+        lambda_ar=float(loss_cfg.get("lambda_ar", 1.0)),
+        lambda_kl=float(loss_cfg.get("lambda_kl", 1.0)),
+        kl_temperature=float(loss_cfg.get("kl_temperature", 0.5)),
+        cmc_l2_normalize=cmc_l2_norm,
+        fd_class_weights=fd_weights,
+    ).to(device)
+
+    # 5. Build Optimizer, Scheduler, and Precision / Scaler configuration
     lr = float(train_cfg.get("lr", 1e-4))
     weight_decay = float(train_cfg.get("weight_decay", 1e-3))
     step_size = int(train_cfg.get("lr_step_size", 15))
     gamma = float(train_cfg.get("lr_gamma", 0.1))
 
-    use_amp = bool(train_cfg.get("amp", False)) and (device.type == "cuda")
-    scaler = torch.amp.GradScaler("cuda") if use_amp else None
-    if use_amp:
-        logger.info("Automatic Mixed Precision (AMP FP16) ENABLED.")
+    # Determine precision mode
+    precision = args.precision or train_cfg.get("precision")
+    if precision is None:
+        if args.amp or train_cfg.get("amp", False):
+            if device.type == "cuda" and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+                precision = "bf16"
+            else:
+                precision = "fp16"
+        else:
+            precision = "fp32"
+    precision = precision.lower().strip()
+
+    use_amp = (precision in ("bf16", "fp16")) and (device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda", init_scale=2048.0) if (precision == "fp16" and use_amp) else None
+    logger.info(f"Precision mode: {precision.upper()} (AMP: {use_amp}, GradScaler: {scaler is not None})")
 
     optimizer = create_optimizer(model, loss_fn, lr=lr, weight_decay=weight_decay)
     scheduler = create_scheduler(optimizer, step_size=step_size, gamma=gamma)
@@ -184,7 +216,7 @@ def main():
         if isinstance(batch, dict) and "image" in batch:
             dry_bs = min(2, batch["image"].shape[0])
             batch = {k: (v[:dry_bs] if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
-        step_losses = train_step(model, loss_fn, optimizer, batch, device=device)
+        step_losses = train_step(model, loss_fn, optimizer, batch, device=device, scaler=scaler, use_amp=use_amp, precision=precision)
         logger.info(f"Dry-run training step completed successfully. Losses: {step_losses}")
 
         logger.info("Executing dry-run image-only evaluation batch...")
@@ -224,6 +256,7 @@ def main():
             device=device,
             scaler=scaler,
             use_amp=use_amp,
+            precision=precision,
             epoch=epoch,
             total_epochs=total_epochs,
             logger=logger,

@@ -1,0 +1,2459 @@
+=== PAGE 1 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 1
+MFVLR: Multi-domain Fine-grained
+Vision-Language Reconstruction for Generalizable
+Diffusion Face Forgery Detection and Localization
+Yaning Zhang , Tianyi Wang ,Member, IEEE, Zan Gao ,Senior Member, IEEE, Yibo Zhao , Chunjie Ma
+, and Meng Wang ,Fellow, IEEE
+Abstract—The swift advancement in photo-realistic face gener-
+ation technology has sparked considerable concerns across society
+and academia, emphasizing the requirement of generalizable
+face forgery detection and localization methods. Prior works
+tend to capture face forgery patterns across multiple domains
+using image modality, other modalities like fine-grained texts
+are not comprehensively investigated, which restricts the gen-
+eralization capability of models. Besides, they usually analyze
+facial images created by GAN, but struggle to identify and
+localize those synthesized by diffusion. To solve the problems,
+in this paper, we devise a novel multi-domain fine-grained
+vision-language reconstruction (MFVLR) model, which explores
+comprehensive and diverse visual forgery traces via language-
+guided face forgery representation learning, to achieve generaliz-
+able diffusion-synthesized face forgery detection and localization
+(DFFDL). Specifically, we devise a fine-grained language trans-
+former that studies general fine-grained language embeddings
+using language reconstruction. We propose a multi-domain vision
+encoder to capture general and complementary visual forgery
+patterns across the image and residual domains. A vision decoder
+is designed to reconstruct image appearance and achieve forgery
+localization. Besides, we propose an innovative plug-and-play
+vision injection module to enhance the interaction between the
+vision and language embeddings. Extensive experiments and
+visualizations demonstrate that our network outperforms the
+This work was supported in part by the National Natural Science Founda-
+tion of China (No.U25A20444, No.62372325, No.62402255, No.62502344),
+Natural Science Foundation of Tianjin Municipality (No.23JCZDJC00280),
+Shandong Provincial Natural Science Foundation (No.ZR2024QF020), Shan-
+dong Province National Talents Supporting Program (No.2023GJJLJRC-070),
+Young Talent of Lifting engineering for Science and Technology in Shan-
+dong (No.SDAST2024QTB001), Shandong Project towards the Integration
+of Education and Industry (No.2024ZDZX11), the Open Project Program of
+State Key Laboratory of Virtual Reality Technology and Systems, Beihang
+University (No.VRLAB2025C05). (Corresponding author: Zan Gao)
+Y . Zhang is with the Faculty of Computer Science and Technology, Qilu
+University of Technology (Shandong Academy of Sciences), Jinan, 250353,
+China. E-mail: zhangyaning0321@163.com
+T. Wang is with the School of Computing, National University of
+Singapore, 21 Lower Kent Ridge Rd, 11907750, Singapore. E-mail:
+terry.ai.wang@gmail.com
+Z. Gao is with the Shandong Artificial Intelligence Institute, Qilu University
+of Technology (Shandong Academy of Sciences), Jinan, 250014, China, and
+also with the Key Laboratory of Computer Vision and System, Ministry of
+Education, Tianjin University of Technology, Tianjin, 300384, China. E-mail:
+zangaonsh4522@gmail.com
+Y . Zhao is with the Key Laboratory of Computer Vision and Systems,
+Ministry of Education, Tianjin University of Technology, Tianjin, 300384,
+China. E-mail: zybtjut@163.com
+C. Ma is with the Shandong Artificial Intelligence Institute, Qilu University
+of Technology (Shandong Academy of Sciences), Jinan, 250014, China. E-
+mail: mcj@machunjie.com
+M. Wang is with the School of Computer Science and Information En-
+gineering, Hefei University of Technology, Hefei, 300384, China. E-mail:
+eric.mengwang@gmail.com
+state of the art on different settings like cross-generator, cross-
+forgery, and cross-dataset evaluations.
+Index Terms—Face forgery detection and localization, Vision-
+language models, Image-residual fusion, Vision injection module.
+I. INTRODUCTION
+Face forgery detection and localization (FFDL) technologies
+aim to identify and locate digitally manipulated facial areas
+using deep learning-based methods such as convolutional
+neural networks (CNN) [1], [2] and transformers [3], [4], [5],
+[6]. Specifically, face forgery detection refers to determining
+the authenticity of facial images at either the image level or
+the video level, and localization intends to achieve pixel-level
+predictions for facial images further. Photorealistic generative
+approaches, including generative adversarial networks (GANs)
+[7], [8], [9] and denoising diffusion probabilistic models
+(DDPM) [10], have attained extraordinary advancement in
+generating extremely lifelike facial images, such that human
+fails to distinguish their reliability [11]. With the increasing
+prevalence of social media as well as digital content across
+the internet, advanced FFDL becomes a critical and imperative
+demand, which contributes to enhancing the public credibility
+of digital information and preventing the spread of misinfor-
+mation.
+Existing FFDL approaches primarily involve two cate-
+gories, spatial-based methods [12], [13] and multi-domain-
+based methods [14], [15], [16]. The former aims to ex-
+plore and localize diverse and comprehensive face forgery
+patterns in the space domain. The latter intends to mine
+general face manipulated traces across space and frequency
+domains. However, there are some limitations for current
+FFDL models:(1) Spatial-based methods [12], [14] are
+inclined to extract forgery-insensitive features like identity
+and background, which results in poor generalization to
+unseen face forgery images.For example, DADF [12] is
+designed to explore spatial forgery patterns via the segment
+anything model (SAM), which demonstrates excellent detec-
+tion and localization accuracy using within-dataset evaluation,
+but shows suboptimal performance on cross-dataset protocol.
+To solve this limitation, considering that previous works [17],
+[18] have shown that there are evident forgery traces yielded
+by generative approaches in the high-frequency domain, multi-
+domain-based methods [15], [14], [16] intend to mine general
+and comprehensive face forgery patterns across space and
+frequency domains, to achieve FFDL. However,(2) they
+arXiv:2605.10071v1  [cs.CV]  11 May 2026
+
+=== PAGE 2 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 2
+ Training Data Flow  Inference Data Flow
+  Diffusion 
+ Face Image 
+A photo of a fake face
+photo of an faceA
+A
+  
+photo diffusion -basedgenerated by modelA
+source generative model is The l 
+the
+ identity swapped 
+   DiffFace  
+      
+    Adapter 
+MLP Head real fake 
+0 1
+ℓkl 
+      
+        Mask
+      Decoder
+real fake 
+0 1
+  Diffusion 
+ Face Image 
+MLP Head
+      
+        Multi-domain
+       Vision Encoder 
+      
+        Multi-domain
+       Vision Encoder 
+Language
+Decoder
+ℓcmc
+Fine-grained Language Transformer 
+Language
+ Encoder
+ Vision 
+Decoder
+(a)
+(b)
+  Existing Face Forgery Detection and Localization Model 
+ 
+  Multi-domain Fine-grained Vision-Language Reconstruction (MFVLR)  
+ 
+VIM VIM
+Text Prompts 
+      
+            Residual          Generation           
+Fig. 1: An overview of the proposed MFVLR. (a) The tra-
+ditional FFDL models are inclined to capture visual forgery
+patterns across space and frequency domains, and only study
+visual modality, which fails to generalize well to face images
+generated using diffusion models. (b) Our MFVLR network
+explores general and fine-grained class-aware language em-
+beddings as well as universal multi-domain visual forgery
+traces, via fine-grained vision-language reconstruction, to at-
+tain robust generalization to DFFDL.
+fail to fully explore the fine-grained text modality, and
+barely study diffusion-synthesized face forgery detection
+and localization (DFFDL), which leads to limited gen-
+eralizability to face images created by diffusions.For
+instance, some networks [14], [16] are proposed to identify
+and localize forgery regions in images generated by GANs
+via combining space and frequency features, but they struggle
+to consider the text modality, and have hardly evaluated the
+performance of models on images created by diffusion models.
+Vision-language-based methods (VLM) [19], [20] attempt to
+capture universal manipulated facial embeddings using vision-
+language contrastive learning for FFD, but they struggle to
+achieve the generalizable DFFDL.
+Based on the aforementioned discussion, we aim to study
+fine-grained class-aware general language embeddings through
+language reconstruction, to enhance the learning of diffu-
+sion forgery-sensitive visual features, to realize generalizable
+DFFDL. In this paper, inspired by image reconstruction, we
+design a multi-domain fine-grained vision-language recon-
+struction (MFVLR) model. Unlike prior FFDL work which
+merely mines multi-domain face manipulated patterns, our
+MFVLR approach conducts the language-guided diffusion
+image-residual forgery representation and localization learning
+using the vision-language matching, to achieve generalization
+to face images generated by diffusions. In detail, our MFVLR
+framework mainly differs from existing FFDL models in the
+Real DiffFace 
+Source
+Image
+Recon.
+Image
+Residual
+Diffusion GAN
+DiffFace FSLSD FSLSD 
+}
+}
+Sobel
+Frequency
+{FID = 400.31 FID = 14.71
+{
+{FID = 25.25 FID = 20.32
+{
+FID = 32.94
+{
+{FID = 20.28
+Fig. 2: The visualization of forgery priors from different
+domains. Each column shows a face yielded by various
+generators, including diffusion and GAN. The first to third
+rows represent the source image, reconstructed image, and
+the residual, respectively. The fourth and fifth rows show the
+edge image extracted by Sobel and the high-frequency image
+derived from the fast fourier transform (FFT), respectively. We
+randomly select 10k real prior images and 10k fake ones to
+calculate the FID score. The higher the FID score, the greater
+the difference between the real and fake prior distribution.
+(a) MFCLIP w/o Language Guidance (b) MFCLIP w/ Language Guidance
+DiffFace 
+Diffae 
+LatDiff 
+DDPM 
+Real 
+DiffFace 
+Diffae 
+LatDiff 
+DDPM 
+Real 
+Fig. 3: The t-SNE visualization of various diffusion embed-
+dings generated by MFCLIP [21] with or without language
+guidance. We randomly select 500 real samples, and for each
+diffusion model, we pick 500 fake samples.
+following aspects (see Fig. 1): First, we notice that there
+are evident discrepancies between authentic and forged fa-
+cial residual images (see Fig. 2). Concretely, residuals are
+visually evident in manipulated images, but not visible in
+real ones. In addition, the residual in the diffusion-generated
+facial image is more discriminative than that in the GAN-
+
+=== PAGE 3 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 3
+synthesized one, compared to other priors extracted by edge
+Sobel or the frequency-based FFT. The FID score of the
+diffusion-generated residual mode is significantly higher than
+that of other diffusion priors, and there are evident FID score
+differences between GAN and diffusion-synthesized residual
+priors, compared to other edge and frequency distributions.
+This demonstrates the generalization advantage of reconstruc-
+tion residuals over other forgery cues (e.g., frequency-domain
+artifacts). Thus, we propose a multi-domain vision encoder
+(MVE) with a residual encoder, to capture the comprehensive
+and characteristic residual traces, and diverse image-residual
+manipulated patterns. Second, we formulate a vision decoder
+(VD) to achieve the pixel-level forgery localization, and learn
+general image representations via the appearance image re-
+construction. Finally, we are inspired by the observation that
+the language guidance mitigates diffusion-specific shifts (see
+Fig. 3). In detail, without language prompts, diffusion samples
+are gathered in respective domains. When the language guid-
+ance is involved, various face samples synthesized by diffusion
+models begin to converge and eventually form a unified cluster.
+Therefore, we design a fine-grained language transformer
+(FLT) to extract general and fine-grained language features
+for preferable vision-language matching. Specifically, inspired
+by image reconstruction, we intend to boost general language
+embeddings via language reconstruction, and enhance the
+communication between vision and language representations.
+However, we note that VLM tends to ignore the interaction
+with vision features during language modelling. To solve this
+problem, we design a plug-and-play vision injection module
+(VIM) to efficiently conduct vision-guided language represen-
+tation learning via fine-grained integration between vision and
+language forgery features at the word level. In summary, the
+contributions of this work are summarized as follows:
+•We propose an innovative MFVLR model, which com-
+bines residuals with image forgery patterns, as well as en-
+hances visual forgery features across image-residual domains
+via fine-grained class-aware language-guided face forgery rep-
+resentation and localization learning, to achieve the generaliz-
+able DFFDL.
+•We design a fine-grained language transformer to recon-
+struct language prompts, to enhance the general and compre-
+hensive language representations through a language decoder,
+which could be integrated into any VLMs like CLIP to
+facilitate the vision-language feature alignment.
+•We devise a novel vision injection module to enhance
+the communication between the vision and language features,
+which could be plugged and played into any VLMs to enhance
+their representation capability with merely a slight growth of
+the number of parameters.
+•Extensive experiments and forgery localization visual-
+izations demonstrate that the proposed approach exceeds the
+state of the art on various protocols, such as cross-generator
+evaluation, cross-forgery evaluation, cross-dataset evaluation,
+and robustness settings.
+II. RELATEDWORK
+A. Face Forgery Detection and Localization
+Prior approaches have achieved significant improvement in
+the domain of FFD. Most detectors capture forged traces
+in the space and frequency domains. A convolutional vision
+transformer (CViT) model [22] is proposed to integrate CNN
+with vision transformer (ViT) [23] for face forgery detection,
+to model global forgery relations among image patches in
+the spatial domain. Zhu et al. [24] decomposed a face im-
+age into several components, such as 3D geometry, lighting,
+common texture, and identity texture, and then employed a
+composition search strategy to automatically identify the most
+informative ones, their optimal combinations, and the most
+effective architecture for extracting forgery-related features.
+Qiao et al. [25] proposed a pseudo-label generator to label the
+training samples, which are then transmitted into the enhanced
+contrastive learner to extract and refine discriminative features.
+Diffusion reconstruction error (DIRE) [26] is designed to
+achieve diffusion image detection based on the discrepancy
+between an input image and the corresponding reconstruction.
+In addition to relying on spatial features for face forgery
+detection, there are several frequency-based models. FreqNet
+[27] is proposed to explore high-frequency manipulated repre-
+sentations across space and channels. To mine various forgery
+traces across different modalities, VLFFD [19] is proposed to
+conduct the coarse-and-fine co-training network learning by
+combining fine-grained text embeddings with coarse-grained
+visual forgery features. DD-VQA [20] designs a multi-modal
+transformer model to enhance the learning of forgery patterns
+using text and image contrastive learning, to facilitate the FFD.
+However, they barely consider pixel-level face forgery local-
+ization. Lai et al. devised the detect any deepfakes (DADF)
+[12] network based on the segment anything model (SAM)
+[28], to explore local and global forgery patterns, to achieve
+the FFDL. Guo et al. proposed the HiFi-Net [16] to study
+both comprehensive representations and underlying hierarchi-
+cal characteristics of various deepfake attributes. MSCCNet
+[15] is designed to capture multi-frequency facial manipulated
+representations based on various frequency bands, to facilitate
+the advancement of pixel-level DFFDL. SIDA [29] not only
+detects image authenticity but also identifies tampered regions
+via mask prediction and provides textual explanations for the
+model’s decisions, via large multi-modal models. DiffForen-
+sics [30] consists of a self-supervised denoising diffusion pre-
+training stage and a multi-task fine-tuning phase to achieve im-
+age forgery detection and localization. By contrast, we observe
+that there are considerable inconsistencies between authentic
+and diffusion-generated face residual images, so we study the
+global residual forgery traces, and integrate them with global
+spatial forensics to mine visually general diffusion-synthesized
+manipulated patterns. Furthermore, we focus on extracting
+fine-grained and general language embeddings corresponding
+to images using language reconstruction learning. Besides,
+we improve visual forgery features across image and residual
+domains by fine-grained vision-language contrastive learning,
+to achieve DFFDL.
+B. Vision-Language Models
+Unlike traditional image-based methods that utilize an
+image feature encoder along with a classifier to predict a
+specified set of prescribed sample classes, vision-language
+models (VLM) [31], [32], [33] like contrastive language-image
+
+=== PAGE 4 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 4
+pre-training (CLIP) [34] concurrently train an image encoder
+and a text encoder, to align image-text pairs from training
+datasets, and then infer on downstream tasks via a zero-shot
+classifier incorporated with the category names or descrip-
+tions from the target dataset, demonstrating powerful image
+representation capabilities in various fields such as visual
+question answering and text-guided image editing. CoOp [35]
+explores the relations among context words of a prompt using
+learnable weights, to adaptively study the text embeddings.
+To alleviate the inherent one-to-one limitation and realize
+the flexible cross-modal alignment, SoftCLIP [36] leverages
+fine-grained intra-modal self-similarities as softened targets
+for cross-modal contrastive learning. CFPL [37] is proposed
+to encode different semantic embeddings from text prompts
+conditioned on visual representations for generalizable face
+anti-spoofing. C2P-CLIP [38] introduces category common
+prompt CLIP, which integrates the category general prompt
+into the text encoder to add category-related concepts into
+the image encoder, leading to improved detection perfor-
+mance. MFCLIP [21] integrates fine-grained noise forgery
+embeddings with global image forgery patterns, and enhances
+them via flexible fine-grained vision-language matching, to
+achieve generalization to face images generated by diffusions.
+Different from traditional VLM which undergoes pretraining
+on large-scale general natural images, and then finetuning
+to enhance inference performance on downstream tasks such
+as FFD, our MFVLR model is trained from scratch using
+facial images generated by various methods like diffusion, to
+promote advancements of DFFDL. Besides, our approach is
+capable of digging visual face forgery representations across
+image-residual domains, extracting more general and fine-
+grained language embeddings using the language reconstruc-
+tion scheme, and studying diverse and comprehensive vision-
+language features via the plug-and-play VIM.
+C. Multi-Modal Fusion for Face Forgery Detection
+Deng et al. [39] propose an accumulated attention mech-
+anism that iteratively aggregates attention over the image,
+query, and objects, and progressively filters out irrelevant noise
+while emphasizing the most useful information. MMDet [40]
+uses the multi-modal forgery representations from large multi-
+modal models (LMMs) to identify diffusion-generated videos,
+which mines features based on spatial artifacts and temporal
+inconsistencies via in-and-across frame attention modules.
+VLFFD [19] introduces the face forgery text generator, which
+generates accurate text descriptions by leveraging forgery
+masks for initial region and type identification, followed by
+a structured prompting strategy to guide MLLMs in reducing
+hallucinations. M2F2-Det [41] adapts CLIP into the deepfake
+detection domain and leverages a bridge adapter to enhance
+LLM integration and generate reliable detection explanations.
+By contrast, based on the novel finding of the residual
+prior, our method extracts general diffusion-generated face
+forgery representations across image-residual domains, re-
+fines language embeddings through a language reconstruction
+scheme, and explores more precise vision-language matching
+to achieve DFFDL.
+III. METHODOLOGY
+A. Method Overview
+To achieve fine-grained language-guided visual face forgery
+representation learning and forgery localization, we devise
+the multi-domain fine-grained vision-language reconstruction
+(MFVLR) model for generalizable DFFDL. Unlike vision-
+language-based models such as MFCLIP, which rely on fine-
+grained image, noise, and text embeddings, our approach
+specifically integrates residual-aware features with global im-
+age forgery patterns and enhances them via an appearance
+decoder, and further improves the fine-grained text features
+via language reconstruction. In addition to boosting global
+visual forgery traces across image-residual domains, we devise
+an innovative plug-and-play vision injection module (VIM)
+to conduct diverse, fine-grained global residual-aware vision-
+language interaction for precise vision-language matching. As
+Fig. 4 illustrates, MFVLR mainly includes three components:
+multi-domain vision encoder (MVE), vision decoder (VD),
+and fine-grained language transformer (FLT). During the train-
+ing stage, given an input image-text pair(I,T)∈ Dwith
+one-hot ground truth labelsy∈
+
+[0,1] T,[1,0] T}and ground
+truth masksM∈R 224×224 from the GenFace datasetD[42],
+where we generate the fine-grained text promptsTbased
+on the hierarchical fine-grained labels, and the ground truth
+masksMbased on the fake and corresponding source image
+pairs, MFVLR first extracts local appearance forgery features
+Iloc from the appearace imageI, which are then transmitted
+to VD to generate the predicted appearance imageI pre and
+the predicted maskM pre. Thereafter,IandI pre are fed into
+the residual generation module to produce the residual image
+Ir. MFVLR captures global visual forgery featuresI v across
+image and residual domains fromI r andIthrough MVE.
+Meanwhile, MFVLR encodes comprehensive and diverse lan-
+guage representations fromTvia FLT. After that,I v is fed
+into an adapter to match with language embeddings, and the
+multilayer perceptron (MLP) head with a full connection layer
+to produce the final predicted detection logitsy pre, respectively.
+We further employ the cross-modal contrastive loss to conduct
+vision-language matching.
+During testing, to prevent information leakage from texts,
+and considering that face images created by the new generative
+model may lack text prompts, we incorporate fine-grained texts
+to train our network exclusively during training. In detail,
+given an appearance imageI, MFVLR yields local appearance
+forgery featuresI loc using MVE, which are then transmitted
+to VD to deriveI pre and maskM pre. Thereafter,I pre and
+Iare transferred to the residual generation module to yield
+the residual imageI r, which is then transferred into MVE to
+generateI v across the image-residual domains.I v is fed into
+the MLP head to generatey pre.
+B. Multi-domain Vision Encoder
+Different from traditional multi-domain FFD approaches
+[14], [43] that tend to coarsely focus on the communication
+between the local frequency or noise and RGB information,
+we design the multi-domain vision encoder (MVE) to dig
+global image manipulated patterns as well as fine-grained
+residual forgery traces, and fuse them, simply and effectively,
+
+=== PAGE 5 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 5
+MLP 
+Head
+0 Real/
+1 Fake
+      
+    Adapter
+A
+The
+A
+A photo of a fake face
+photo of an face
+photo diffusion-basedgenerated by model
+source generativemodelof this photo is DiffFace
+ identity swapped 
+the
+A
+A
+The
++
+Element-wise 
+   Addition
+Multi-Head
+  Attention 
+   Masked
+Multi-Head
+  Attention 
+       MMHA MHA
+      
+   Shared 
+   Weight 
+   Language
+ EmbeddingsVIM Vision Injection 
+     Module
+     Feed
+   Forward FF
+      
+    Multi-domain
+   Vision Encoder 
+      
+      
+            Image Encoder
+      
+           Residual Encoder
++
+      
+           Residual
+          Generation
+           
+      
+    Inference Phase
+      
+Language Encoder       Language Decoder 
+Transformer Block 
+       
+MMHA MHA VIM FF 
+      
+    Appearance
+      Decoder
+      
+    Mask Decoder
+kl ℓ
+Fine-grained Language Transformer 
+Vision Decoder 
+MLP 
+Head
+0 Real/ 
+1 Fake
+      
+    Multi-domain 
+   Vision Encoder 
+      
+      
+    Appearance
+      Decoder
+      
+     Mask 
+   Decoder
+Vision Decoder 
+I
+T
+I r Iv
+       
+Transformer Block 
+MHA VIM FF 
+T hig
+e
+Tlpre
+Tl
+Tpre
+Ipre
+Mpre
+ y pre
+× D×
+     Visual 
+ Embedding
+cmcℓ
+ET tra
+1
+   Text Prompts 
+      
+           Residual
+          Generation
+           
+A
+A
+A photo of a fake face
+photo of an face
+photo diffusion-basedgenerated by model
+ identity swapped 
+the
+A
+A
+The source generativemodelof this photo is DiffFaceThe
+   Appearance Image
+   Residual Image
+      
+   Training Phase 
+      
+Fig. 4: The workflow of MFVLR. Given an input image-text pair, we first send the appearance image to MVE to study local
+appearance forgery features, which are then imparted to a VD module to reconstruct the appearance image and achieve pixel-
+level forgery localization. After that, the reconstructed appearance image and original image are sent to the residual generation
+module to generate the residual image, which is then fed into MVE to extract visual forgery patterns across the image and
+residual domains. Meanwhile, we transmit the corresponding text and visual forgery features to FLT to derive global language
+features and reconstructed text prompts based on the fine-grained vision-language interaction via VIM. Finally, visual forgery
+features are transferred into the adapter to match with global language ones via the KL loss, and the MLP head to yield the
+final prediction, respectively. During testing, the trained MVE, VD, and MLP head module are applied to achieve DFFDL.
+to capture comprehensive diffusion image-residual forgery
+patterns. As shown in Fig. 4, MVE primarily contains an image
+encoder (IE) and a residual encoder (RE).
+Image encoder.To learn global diffusion facial forgery rep-
+resentations, we design IE, which consists of a UNet encoder
+[44] and a transformer encoder (TE) withBimage transformer
+blocks TB i
+j,j= 1,2,...,B. Specifically, given an input
+appearance imageI∈R 3×224×224, IE extracts the local
+appearance forgery featuresI loc ∈R c×h×w via the UNet
+encoder, wherec,h,wdenotes the channel, height, and width
+of the feature map. Thereafter,I loc is transferred into VD
+(see Sec. III-C) to acquire the predicted appearance image
+Ipre∈R 3×224×224, which is then fed into the residual genera-
+tion module to obtain the residual imageI r ∈R 3×224×224,
+i.e.,I r =|I pre−I|. Meanwhile, IE sends theI loc to the
+transformer encoder (TE), to explore global relations among
+feature patches. Specifically,I loc is first flattened and projected
+to 2D token sequences with the dimension ofdalong the
+channel. Thereafter, it is appended with a learnable class
+token to learn the global image forgery embeddings, to gain
+Itok =App(Proj(Flat(I loc)))∈R (hw+1)×d, and then added
+with a learnable position embeddingP i∈R (hw+1)×d to study
+the position information. That is,
+Itra
+1 =I tok +P i.(1)
+Afterwards, it is successively transmitted intoBblocks, i.e.,
+TE(Itra
+1 ) =TB i
+B◦TB i
+B−1◦···◦TB i
+2◦TB i
+1(Itra
+1 )
+=TB i
+B◦TB i
+B−1◦···◦TB i
+2(Itra
+2 )
+=···=TB i
+B◦TB i
+B−1(Itra
+B−1)
+=TB i
+B(Itra
+B )
+=I TE,(2)
+where◦denotes the function decomposition. IE extracts the
+global appearance forgery representationsI g∈R 1×d using the
+class token inI TE.
+Residual encoder.To capture global and fine-grained residual
+forgery traces, we propose the residual encoder (RE), which
+shares the same architecture and weights with IE, to reduce
+the number of parameters. Likewise, RE encodes the global
+
+=== PAGE 6 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 6
+Vision Injection Module 
+Q
+l
+l
+l
+V
+Partition
+l
+l
+K
+l
+Cross-Attention 
+Concatenation 
+l
+r
+Head 1
+Head rl
+Tj
+tok
+I v
+j
+j
+j
+Tj
+add
+Partition
+Partition
+Wj
+key
+Wj
+val
+W j
+que
+Wj
+fc 
++
+Fig. 5: The pipeline of VIM. Vision forgery embeddings are
+projected into the key and value metrics, respectively, and the
+language feature is used as a query to interact with the vision
+forged feature at the word level, to extract diverse fine-grained
+vision-language representations.
+residual forgery featuresI r
+g∈R 1×d from the residual image
+Ir, i.e.I r
+g =RE(I r). Finally, MVE generates the abundant
+image-residual visual manipulated patternsI v by integrating
+Ir
+g withI g, i.e.,I v =I r
+g +I g, which are then transmitted to the
+adapter and the MLP head, respectively.
+C. Vision Decoder
+To promote the model to learn universal forgery represen-
+tations and achieve pixel-level manipulation localization, we
+devise the vision decoder (VD). As Fig. 4 illustrates, VD is
+composed of an appearance decoder and a mask decoder.
+Appearance decoder.To capture general facial forgery traces
+and extract the residual information, we devise the appearance
+decoder (AD). AD consists of a UNet decoder along with an
+appearance reconstruction module with a convolutional layer.
+Specifically, given the local appearance forgery featuresI loc
+derived from IE, AD studies the general image features to gen-
+erate the predicted appearance imageI pre, i.e.,I pre =AD(I loc).
+Mask decoder.To achieve face manipulation localization,
+we devise the mask decoder (MD). MD is composed of a
+UNet decoder along with a manipulation localization module
+with a convolutional layer. The UNet decoder adopts the
+same network and weights as those in AD, to decrease
+the number of parameters. Specifically, given local appear-
+ance forgery featuresI loc (see Sec. III-B), MD extracts the
+discriminative forgery patterns to yield the predicted mask
+Mpre∈R f×224×224 , i.e.,M pre =MD(I loc), wherefis the
+number of detection category.
+D. Fine-grained Language Transformer
+Unlike traditional language transformer models that merely
+explore the global relationships among words, we design the
+fine-grained language transformer (FLT) to capture global
+language representations and diverse fused vision-language
+embeddings. As Fig. 4 shows, FLT consists of a language
+encoder and a language decoder, both of which include the
+vision injection module, to conduct the vision-guided language
+representation learning.
+Language encoder.To encode the fine-grained language
+representations, we design the language encoder (LE), which
+L1: A photo of a fake  face 
+L2: A photo of an entire synthesized face 
+L3: A photo generated by the diffusion-based model 
+L4: The source generative model of this photo is DDPM 
+L1: A photo of a fake  face 
+L2: A photo of an entire synthesized  face 
+L3: A photo generated by the diffusion-based  model 
+L4: The source generative model of this photo is 
+LatentDiffusion 
+L1: A photo of a fake  face 
+L2: A photo of an entire synthesized  face 
+L3: A photo generated by the diffusion-based model 
+L4: The source generative model of this photo is 
+CollaborativeDiffusion 
+L1: A photo of a fake  face 
+L2: A photo of an  entire synthesized face 
+L3: A photo generated by the GAN-based model 
+L4: The source generative model of this photo is 
+StyleGAN3 
+L1: A photo of a fake  face 
+L2: A photo of an identity swapped  face 
+L3: A photo generated by the GAN-based  model 
+L4: The source generative model of this photo is FSLSD 
+L1: A photo of a fake  face 
+L2: A photo of an attribute manipulated  face 
+L3: A photo generated by the GAN-based  model 
+L4: The source generative model of this photo is 
+LatentTransformer 
+Hierarchical Text Prompt Image
+ Image
+L1: A photo of a fake  face 
+L2: A photo of an identity swapped face 
+L3: A photo generated by the diffusion-based model 
+L4: The source generative model of this photo is DiffFace 
+Hierarchical Text Prompt 
+L1: A photo of a fake face 
+L2: A photo of an attribute manipulated face 
+L3: A photo generated by the diffusion-based model 
+L4: The source generative model of this photo is Diffae 
+L1: A photo of a fake  face 
+L2: A photo of an identity swapped  face 
+L3: A photo generated by the GAN-based  model 
+L4: The source generative model of this photo is 
+FaceSwapper 
+GANDiffusion Entire Face 
+Synthesis
+Face 
+Swap
+Attribute 
+Manipulation
+L1: A photo of a real  face 
+L2: A photo of a real face 
+L3: A photo of a real face 
+L4: A photo of a real face 
+Fig. 6: The typical level 1 (L1) to level 4 (L4) examples for
+different forgery types and generators.
+consists ofELE transformer blocks TB e
+j,j= 1,2,...,E.
+We introduce the fine-grained text generator (FTG) [21] to
+generate hierarchical text promptsTfrom level 1 to level
+4 (see Fig. 6) for each image based on hierarchical fine-
+grained labels offered by the GenFace dataset. Specifically,
+givenT, we utilize the tokenizer [34] to acquire a sequence
+of word tokensT e
+tok∈R n, wherendenotes the number of
+word tokens. It is then projected to the low-level language
+embeddingsT e
+low ∈R n×d via a vocabularyW voc ∈R s×d,
+wheresis the vocabulary size, and integrated with position
+embeddingP e∈R n×d, i.e.,T tra
+1 =T e
+low +P e. Afterwards,
+it is sequentially transmitted toEblocks to derive high-level
+language embeddingsT e
+hig, i.e.,
+LE(T tra
+1 ) =TB e
+E◦TB e
+E−1◦···◦TB e
+2◦TB e
+1(T tra
+1 )
+=TB e
+E◦TB e
+E−1◦···◦TB e
+2(T tra
+2 )
+=···=TB e
+E◦TB e
+E−1(T tra
+E−1)
+=TB e
+E(T tra
+E )
+=T e
+hig.(3)
+LE studies the global language embeddingsT l∈R 1×d using
+the last token inT e
+hig.
+Transformer block.Unlike vanilla transformer blocks
+which only model the global relationships among words, and
+tend to struggle with comprehensive and diverse global infor-
+mation due to the limitation of a single modality, our trans-
+former block introduces the proposed plug-and-play vision
+injection module (VIM) to conduct vision-guided language
+representation learning to extract extensive global vision-
+language representations. Specifically, as Fig. 4 illustrates, in
+thej-th LE transformer block TB e
+j, the enhanced language
+embeddingT tra
+j is first fed to a layer normalization (LN) to
+facilitate the model learning, and then transmitted to the multi-
+head attention (MHA) module to capture the global relations
+among words,T tok
+j =MHA e
+j(LNe
+j(T tra
+j )) +T tra
+j ∈R n×d. To
+study the abundant vision-language representations efficiently
+and provide a flexible framework that can easily be integrated
+with different architectures, we design the VIM module.
+Unlike previous interaction mechanisms, our VIM method is
+designed to achieve comprehensive and fine-grained interac-
+tion between vision and language features at the word level,
+efficiently for DFFDL, which could be plugged and played into
+
+=== PAGE 7 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 7
+transformer-based vision-language models without requiring
+extensive architectural changes and parameter count growth.
+As Fig. 5 illustrates, VIM first transforms the diverse language
+representationsT tok
+j to query using the learnable parameter
+matricesW que
+j ∈R d×d, and the vision forgery class token
+embeddingI v∈R 1×d to key and value using the learnable
+weight matricesW key
+j andW val
+j ∈R d×d, respectively. Note
+that only the class token instead of all tokens or patch tokens
+from the vision forged features, is used as the key and value,
+which ensures that generating the attention map incurs a linear
+computational cost instead of a quadratic one.
+qj =T tok
+j W que
+j ,(4)
+kj =I vW key
+j ,(5)
+vj =I vW val
+j .(6)
+The query, key, and value matrices are then partitioned intor
+heads, respectively,
+{Qj,i∈R n× d
+r}r
+i=1 =Pa(q j),(7)
+{Kj,i∈R 1× d
+r}r
+i=1 =Pa(k j),(8)
+{Vj,i∈R 1× d
+r}r
+i=1 =Pa(v j).(9)
+Unlike traditional fusions like summation which may merge
+information at a coarse level, to achieve the diverse and fine-
+grained interaction between the vision and language features,
+we conduct the cross-attention calculation in parallel in each
+head space to inject vision forged features into each word,
+T glo
+j,i =δ( Qj,iK T
+j,ip r
+d
+)Vj,i,(10)
+whereδis the softmax function. Thereafter, the cross-attention
+outputs from all heads are concatenated to yield diverse global
+vision-language representations,
+T glo
+j =Cat({T glo
+j,i}r
+i=1)∈R n×d.(11)
+Thereafter, it is fed into a fully connected layer and then added
+withT tok
+j to enhance the vision-language representation, i.e.,
+T add
+j =T glo
+j W fc
+j +T tok
+j , whereW fc
+j ∈R d×d is the learnable
+weight of the fully connected layer. Finally, it is transmitted
+into a feed forward (FF) network with a fully connected layer
+to yieldT tra
+j+1 =FF e
+j(T add
+j ) +T add
+j ∈R n×d.
+Language decoder.Inspired by image reconstruction meth-
+ods, we propose to perform text reconstruction to enhance the
+general language representation capabilities of the model. Text
+reconstruction refers to the process of recovering or generating
+the original text prompt from a given text prompt. Therefore,
+we design the language decoder (LD) withDLD transformer
+blocks TB d
+j,j= 1,2,...,D. Unlike conventional language
+decoders, we introduce visual embeddings to guide the model
+to reconstruct text prompts using VIM. Specifically, given the
+low-level language embeddingsT e
+low∈R n×d of the input fine-
+grained text promptT, the high-level language embeddings
+T e
+hig generated by LE, and the visual forgery featuresI v derived
+from MVE,T e
+low is appended with a begin token and removed
+the last token to keep the number of tokens unchanged and
+predict the next word in sentences, and then added with the
+position embeddingP d ∈R n×d to gain theT tra
+t1 ∈R n×d.
+We sequentially fedT tra
+t1 ,T e
+hig, andI v toDblocks to derive
+reconstruced text embeddingsT d
+rec∈R n×d, i.e.,
+LD(T tra
+t1 ,T e
+hig,I v) =TB d
+D◦···◦TB d
+2◦TB d
+1(T tra
+t1 ,T e
+hig,I v)
+=TB d
+D◦···◦TB d
+2(T tra
+t2 ,T e
+hig,I v)
+=···=TB d
+D(T tra
+tD,T e
+hig,I v)
+=T d
+rec.(12)
+As Fig. 4 illustrates, each LD transformer block TB d
+j
+contains the masked multi-head attention module (MMHA)
+MMHAd
+j, multi-head attention (MHA) MHA d
+j, the FF layer
+FFd
+j, and the VIM module VIM d
+j. In TB d
+j,T tra
+tj is fed into
+the MMHA module to prevent information leakage, to obtain
+language embeddings in which each word only integrates the
+information of itself and previous ones, and then performed
+residual addition as follows:
+T mmha
+tj =MMHA d
+j(T tra
+tj ) +T tra
+tj .(13)
+After that,T mmha
+tj andT e
+hig are transmitted to the MHA module
+to achieve the communication between the low-level and
+high-level language embeddings, to produce fused language
+representations. They are then conducted residual addition, i.e.,
+T mha
+tj =MHA d
+j(T mmha
+tj ,T e
+hig) +T mmha
+tj .(14)
+Thereafter,T mha
+tj is fed to the FF layer and then executed
+residual summation as below:
+T ff
+tj =FF d
+j(T mha
+tj ) +T mha
+tj .(15)
+Finally,T ff
+tj and visual forgery featuresI v are transferred to
+the VIM to enhance the interaction between the vision and
+language representations, and then added withT ff
+tj to improve
+representations. That is,
+T tra
+tj+1 =VIM d
+j(T ff
+tj,I v) +T ff
+tj.(16)
+E. Loss Function
+In Table I, we include a dedicated table summarizing the
+key notation system.
+Appearance reconstruction loss.To enhance general image
+forgery representations, we introduce the appearance recon-
+struction (AR) loss to reduce the discrepancy between the
+predicted appearance imageI pre (see Sec. III-B) and the input
+appearance imageI, as follows:
+Lar = 1
+b
+bX
+u=1
+(I u−I u
+pre)2,(17)
+wherebdenotes the number of samples in a batch, andu∈b
+is the index of samples.
+Forgery localization loss.To create the ground truth mask,
+we pair the forgery images such as face-swapped images and
+attribute-edited ones with their corresponding source image,
+measure the absolute pixel-wise difference in the RGB chan-
+nels, convert it into grayscale, and then divide it by 255
+to yield a map with the range of [0, 1]. We empirically
+define the threshold of 0.1 to generate the ground truth mask
+
+=== PAGE 8 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 8
+M∈R 224×224. We set the ground truth mask of real face
+images to 0, and that of the entire synthesized face images
+to 1. To diminish the divergence between the predicted mask
+Mpre and the ground truth maskM, we design the forgery
+localization (FL) loss, to supervise the model to achieve pixel-
+level predictions. That is,
+Lfl = 1
+b
+bX
+u=1
+−(M u)T log(M u
+pre).(18)
+Kullback-leibler divergence loss.We fed visual forgery
+embeddingsI v to an adapter with a full connection layer,
+to generate the predicted language featuresT lpre∈R 1×d. To
+bringT lpre closer to the global language embeddingsT l∈R 1×d
+derived from LE (see Sec. III-D), we introduce the kullback-
+leibler (KL) divergence loss, to conduct the feature alignment,
+i.e.,
+Lkl = 1
+b
+bX
+u=1
+δ(T u
+l )T logδ(T u
+l )
+δ(T u
+lpre ),(19)
+whereδis the softmax function with temperature 0.5, to
+smooth features.
+Cross-modal contrastive loss.To conduct vision-language
+contrastive learning, like CLIP, we introduce the cross-modal
+contrastive (CMC) loss, to improve the visual forgery fea-
+tures. Formally, for the vision-language embedding pairs
+{(I u
+v,T u
+l )}b
+u=1, we compute the vision-language cosine simi-
+larity vector and the language-vision one as follows:
+Sum
+v2l (Iv,T l) = exp(sim(Iu
+v,T m
+l )/τ)
+Pb
+m=1 exp(sim(Iu
+v,T m
+l )/τ)
+,(20)
+Sum
+l2v (Tl,I v) = exp(sim(T u
+l ,I m
+v )/τ)
+Pb
+m=1 exp(sim(T u
+l ,I m
+v )/τ)
+,(21)
+whereτis a trainable temperature weight initialized with 0.07,
+and the function sim(·) conducts a dot product to calculate
+the similarity scores.u,m= 1,2,...,bare the index of the
+sample. The one-hot labely pa of theu-th pair is defined as
+yu
+pa ={y um
+pa }b
+m=1,y uu
+pa = 1,y um,u̸=m
+pa = 0. To draw positive
+pairs together, while separating negative ones, the CMC loss
+is denoted asL cmc = (L v2l +L l2v)/2, where
+Lv2l = 1
+b
+bX
+u=1
+−(yu
+pa)T log(Su
+v2l (Iv,T l)),(22)
+Ll2v = 1
+b
+bX
+u=1
+−(yu
+pa)T log(Su
+l2v(Tl,I v)).(23)
+Language reconstruction loss.To facilitate the general fine-
+grained class-aware language representations and achieve lan-
+guage reconstruction, we introduce the language reconstruc-
+tion (LR) loss function, to minimize the distance between
+reconstructed text prompts and the authentic ones. In detail,
+given the reconstructed text featuresT d
+rec∈R n×d derived from
+LD (see Sec. III-D), we acquire the predicted reconstructed
+text labelT pre as follows:
+Tpre =T d
+recW T
+voc∈R n×s,(24)
+TABLE I: Summary of key notation system used in this paper.
+Symbol Description
+I,I r,I pre Appearance, residual, and predicted appearance image
+Iloc,I g Local, and global appearance forgery features
+Ir
+g,I v Global residual, and visual forgery features
+TBi
+j,TBe
+j,TBd
+j Image, LE, and LD transformer block of thej-th.
+M,M pre Ground truth mask, and predicted mask
+y,y pre Image ground truth one-hot labels, predicted detection logits
+T,T pre Fine-grained text prompts, predicted reconstructed text labels
+Tl,T e
+low,T e
+hig Global, low-level, and high-level language embeddings
+T d
+rec,T lpre Reconstructed text features, predicted language features
+Tgt,W voc Text ground truth one-hot labels, and vocabulary
+whereW voc ∈R s×d denotes the vocabulary andsis the
+vocabulary size. The LR loss is formally expressed as follows:
+Llr = 1
+b
+bX
+u=1
+nX
+x=1
+−(T u,x
+gt )T log(T u,x
+pre ),(25)
+wherexis the index of the word, andT gt∈R n×s denotes the
+text ground truth one-hot label.
+Forgery detection loss.To mine discriminative forgery pat-
+terns, we introduce the forgery detection (FD) loss function.
+Specifically, we fed visual forgery featuresI v derived from
+MVE (see Sec. III-B) to the MLP head consisting of a fully
+connected layer, to yield the predicted detection logitsy pre.
+The FD loss is denoted as follows:
+Lfd = 1
+b
+bX
+u=1
+−(yu)T log(yu
+pre).(26)
+The total loss function is denoted as follow:
+L=L fd +L lr +L cmc +L fl +L ar +L kl.(27)
+IV. EXPERIMENTS
+A. Experiment Setup
+Implementation details.We deployed the model via PyTorch
+on the Tesla V100 GPU. We set the number of transformer
+blocksB,E, andDin MFVLR to 4, 12, and 7, respectively.
+The vocabulary sizes, the categoryf, the feature dimension
+d, the number of word tokensn, and the batch sizebare set to
+49408, 2, 512, 308, and 8, respectively. The channelc, height
+h, and widthware set to 1024, 14, and 14, respectively. Our
+model is trained using the Adam optimizer with a learning
+rate of 1e-4 and weight decay of 1e-3. The scheduler is used
+to reduce the learning rate by ten times every 15 epochs.
+Metrics.We utilized accuracy (ACC) and area under the
+receiver operating characteristic curve (AUC) for image-level
+detection metrics. We employed the mean of class-wise inter-
+section over union (mIoU) for pixel-level localization metrics.
+The higher the value, the better the performance.
+Datasets.We leveraged the hierarchical face forgery dataset
+GenFace [42] to achieve DFFDL. GenFace includes a large
+number of fake images generated by various advanced gen-
+erators, which involve three categories: entire face synthesis
+(EFS) (e.g., DDPM [10], LatDiff [46], CollDiff [47]), attribute
+manipulation (AM) (e.g., Diffae [48], LatTrans [49], IAFaces
+[50]), and face swapping (FS) (e.g., FSLSD [51], FaceSwapper
+
+=== PAGE 9 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 9
+TABLE II: Cross-forgery generalization on GenFace. ACC and
+AUC scores (%) on remaining manipulations, after training
+using one manipulation. EFS is entire face synthesis. AM is
+attribute manipulation. FS is face swapping.
+Training Set Model
+Testing Set
+EFS AM FS
+ACC AUC ACC AUC ACC AUC
+EFS
+Xception [1] - - 50.00 63.14 68.06 79.52
+ViT [23] - - 54.69 65.86 53.13 61.43
+CViT [22] - - 50.02 63.53 72.79 73.82
+DIRE [26] - - 50.03 76.14 74.03 77.89
+FreqNet [27] - - 50.00 75.41 76.48 69.62
+CLIP [34] - - 56.05 64.32 53.06 61.40
+MFCLIP [21] - - 58.05 78.76 76.88 81.99
+FatFormer [45] - - 55.89 66.90 56.21 64.89
+VLFFD [19] - - 55.31 73.89 69.54 70.31
+DD-VQA [20] - - 55.96 74.02 70.23 80.02
+M2TR [14] - - 50.43 64.89 70.98 80.45
+MSCCNet [15] - - 57.30 75.98 75.21 81.73
+MFVLR (Ours)- -60.13 80.72 79.26 84.03
+AM
+Xception [1] 50.20 51.45 - - 50.11 54.57
+ViT [23] 50.29 60.37 - - 50.19 55.04
+CViT [22] 50.15 70.32 - - 50.02 60.74
+DIRE [26] 51.14 72.41 - - 51.24 70.45
+FreqNet [27] 50.88 74.68 - - 50.33 76.34
+CLIP [34] 52.48 60.96 - - 51.01 55.21
+MFCLIP [21] 53.29 87.76 - - 52.61 80.31
+FatFormer [45] 51.67 63.90 - - 51.82 59.03
+VLFFD [19] 52.06 68.98 - - 51.52 74.40
+DD-VQA [20] 52.15 73.10 - - 52.07 77.50
+M2TR [14] 51.09 84.29 - - 51.17 78.10
+MSCCNet [15] 52.69 86.95 - - 51.33 79.03
+MFVLR (Ours) 56.73 89.03- -54.62 83.40
+FS
+Xception [1] 50.42 76.48 53.75 75.62 - -
+ViT [23] 51.09 69.16 52.37 78.11 - -
+CViT [22] 50.22 73.88 49.98 73.75 - -
+DIRE [26] 54.06 79.65 52.13 78.32 - -
+FreqNet [27] 53.46 73.68 51.97 74.18 - -
+CLIP [34] 52.10 71.47 50.16 62.27 - -
+MFCLIP [21] 60.08 84.93 62.58 80.38 - -
+FatFormer [45] 54.06 74.78 53.81 65.89 - -
+VLFFD [19] 55.38 80.74 54.60 77.14 - -
+DD-VQA [20] 56.02 81.10 54.79 76.05 - -
+M2TR [14] 52.08 78.55 55.12 79.52 - -
+MSCCNet [15] 58.29 82.75 56.98 80.56 - -
+MFVLR (Ours) 61.13 85.98 64.92 83.73- -
+[52]). We performed the cross-forgery protocol and cross-
+generator evaluation on GenFace. Four deepfake datasets are
+employed to conduct the cross-dataset evaluation, to demon-
+strate the generalization and robustness of frameworks: FF++
+[53], DFDC [54], Celeb-DF [55], and DF-1.0 [56].
+B. Comparison with the State of the Art
+We studied the performance of state-of-the-art methods on
+face images created via diffusion models using the GenFace
+dataset. We chose some models including space-based Xcep-
+tion [1], frequency-based FreqNet [27], transformer-based ViT
+[23], CViT [22] and FatFormer [45], vision-language-based
+CLIP [34], VLFFD [19], MFCLIP [21], C2P-CLIP [38], as
+well as DD-VQA [20], DIRE [26] employed to detect diffusion
+images, various FFDL methods like M2TR [14], DADF [12],
+SIDA [29] as well as HiFi-Net [16], and the DFFDL model
+MSCCNet [15] and DiffForensics [30].
+Cross-forgery evaluation.To evaluate the generalization ca-
+pability of different methods, we conducted a cross-forgery
+0 1 2 3 4 5
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+AUC (%)
+Saturation
+0 1 2 3 4 5
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+Contrast
+0 1 2 3 4 5
+0
+10
+20
+30
+40
+50
+60
+70
+80
+Block -wise
+0 1 2 3 4 5
+0
+10
+20
+30
+40
+50
+60
+70
+80
+90
+Gaussian Noise
+0 1 2 3 4 5
+Severity
+0
+10
+20
+30
+40
+50
+60
+70
+80
+AUC (%)
+Gaussian Blur
+0 1 2 3 4 5
+Severity
+0
+10
+20
+30
+40
+50
+60
+70
+80
+Pixelation
+0 1 2 3 4 5
+Severity
+0
+10
+20
+30
+40
+50
+60
+70
+80
+V ideo Compression
+0 1 2 3 4 5
+Severity
+0
+10
+20
+30
+40
+50
+60
+70
+80
+A verage
+FreqNet CLIP M2TR MFVLR (Ours)
+Fig. 7: The robustness of models to unseen various image
+perturbations.
+protocol. Specifically, networks are trained using facial images
+of one manipulation, and tested on those of the remaining
+forgeries. As shown in Table II, the detection results of
+our method outperform most approaches, highlighting the
+exceptional generalization ability of MFVLR. Notably, for
+FFDL models, the AUC of our model surpasses M2TR and
+MSCCNet by around 4.7% and 2.1%, respectively, on EFS
+after training with AM. We argued that our method owns
+more powerful capacity of capturing the diverse and general
+relations between vision and language modalities than other
+FFDL approaches.
+Cross-generator evaluation.To demonstrate the generaliza-
+tion of various detectors on unseen face images synthesized by
+diffusion methods, we executed the cross-diffusion evaluation
+using GenFace. As DFFDL can be regarded as a novel and
+complicated task, to the best of our knowledge, there have
+been no thorough experiments to verify the performance of
+FFDL approaches on cross-diffusion generators. Therefore,
+our research is the first to evaluate the generalization of
+networks to unseen facial images synthesized by diffusion
+models, systematically and extensively. In detail, we trained
+networks using the images created by one diffusion-based gen-
+erator and tested them on different ones. As Table III displays,
+the performance of our model outperforms that of most FFDL
+methods on the cross-diffusion protocol. Specifically, the AUC
+of the proposed MFVLR approach is about 10% higher than
+M2TR on Diffae after training using LatDiff. Besides, the
+mIoU of MFVLR is around 5.03%, 2.6%, and 3.75% higher
+than MSCCNet, SIDA, and DiffForensics on DiffFace. In
+Table IV, the AUC of our model is nearly 25.9% and 23%
+higher than that of C2P-CLIP and MFCLIP, respectively, on
+CollDiff after training using DiffFace. We argue that our model
+not only captures residual-aware general forgery patterns but
+also realizes precise vision-language matching via language
+reconstruction, thus alleviating diffusion-specific shifts. In
+Table IV, the AUC of MFVLR is around 99% on various
+diffusion models after training using CollDiff, realizing the
+state-of-the-art performance. By contrast, in Table V, MFVLR
+achieves the best 82.31% ACC on GAN-generated face images
+created by LatTrans after training using Diffae among other
+methods, which shows that our method achieves superior
+generalization to face images generated by diffusion models.
+
+=== PAGE 10 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 10
+TABLE III: Cross-diffusion evaluation on GenFace. ACC, AUC, and mIoU scores (%) on remaining diffusion-based generators,
+after training using one diffusion-based generator.
+Training Set Model
+Testing Set
+DDPM LatDiff CollDiff DiffFace Diffae
+ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑
+DDPM
+Xception [1] - - - 50.00 63.57 - 50.48 75.94 - 53.07 96.80 - 50.07 87.49 -
+ViT [23] - - - 50.67 54.28 - 52.94 74.53 - 61.31 88.58 - 50.21 49.17 -
+CViT [22] - - - 50.00 74.51 - 50.07 73.24 - 51.51 96.21 - 50.28 92.62 -
+DIRE [26] - - - 50.18 62.50 - 50.21 69.95 - 56.54 94.33 - 51.12 88.55 -
+FreqNet [27] - - - 50.00 49.09 - 50.21 71.52 - 50.26 91.94 - 53.77 91.76 -
+CLIP [34] - - - 51.79 57.63 - 52.28 60.95 - 76.71 93.23 - 49.86 45.66 -
+MFCLIP [21] - - - 55.69 79.80 - 55.78 77.09 -88.89 99.99 - 55.94 98.76 -
+FatFormer [45] - - - 53.70 59.43 - 54.66 63.21 - 78.02 94.80 - 51.65 48.27 -
+VLFFD [19] - - - 51.73 72.96 - 53.70 74.91 - 77.46 95.11 - 52.83 88.87 -
+DD-VQA[20] - - - 51.45 73.99 - 53.84 76.08 - 77.93 96.05 - 54.01 89.36 -
+C2P-CLIP[38] - - - 51.67 65.79 - 54.38 75.09 - 80.62 97.59 - 53.62 86.97 -
+SIDA [29] - - - 57.64 94.37 49.26 57.89 78.25 54.78 87.9699.99 55.43 56.28 99.09 69.56
+DiffForensics [30] - - - 57.28 72.96 56.99 53.84 80.65 55.26 76.31 94.38 56.89 58.97 98.95 70.42
+M2TR [14] - - - 50.02 40.18 39.97 50.04 79.17 49.91 50.24 44.60 42.16 50.39 60.44 59.17
+HiFi-Net [16] - - - 50.11 59.43 42.31 52.54 79.43 53.49 68.90 82.45 53.28 54.52 83.90 70.99
+MSCCNet [15] - - - 52.87 65.76 47.52 53.6782.56 56.09 59.78 87.46 55.77 53.98 85.43 71.95
+MFVLR (Ours)- - -60.32 98.41 59.34 55.0978.04 58.6982.65 99.98 58.49 69.88 99.90 73.87
+LatDiff
+Xception [1] 50.13 76.45 - - - - 50.00 37.05 - 51.51 96.21 - 50.28 92.62 -
+ViT [23] 66.60 80.74 - - - - 53.20 54.09 - 52.93 57.59 - 57.60 65.33 -
+CViT [22] 51.73 90.76 - - - - 50.00 52.36 - 50.01 44.50 - 47.88 44.04 -
+DIRE [26] 50.01 46.29 - - - - 50.02 43.13 - 50.01 48.51 - 50.05 45.98 -
+FreqNet [27] 78.50 83.32 - - - -79.0489.58 - 50.18 89.93 - 38.16 37.87 -
+CLIP [34] 62.33 74.53 - - - - 52.99 53.23 - 55.71 61.05 - 56.64 64.38 -
+MFCLIP [21] 99.99 99.99 - - - - 65.08 77.07 - 99.98 99.98 - 97.92 99.99 -
+FatFormer [45] 63.99 76.26 - - - - 54.90 56.14 - 57.89 63.04 - 58.92 66.03 -
+VLFFD [19] 87.35 92.64 - - - - 56.32 67.81 - 87.24 89.25 - 68.53 93.02 -
+DD-VQA [20] 88.46 94.00 - - - - 57.84 73.02 - 88.61 97.05 - 70.56 93.70 -
+C2P-CLIP [38] 94.37 99.86 - - - - 66.89 79.84 - 89.47 98.16 - 73.95 96.87 -
+SIDA [29] 92.43 96.87 69.66 - - - 55.80 80.74 52.37 90.84 97.19 69.45 76.50 95.83 71.79
+DiffForensics [30] 91.56 97.39 70.83 - - - 56.71 78.49 53.08 87.56 97.59 70.63 75.98 94.15 72.53
+M2TR [14] 86.04 99.88 67.92 - - - 50.02 56.42 49.81 50.03 66.25 62.14 53.56 89.89 69.20
+HiFi-Net [16] 89.08 99.89 68.13 - - - 51.49 50.76 47.10 52.08 68.79 64.59 57.65 91.05 71.26
+MSCCNet [15] 90.23 99.52 65.48 - - - 53.34 63.60 51.26 70.22 82.54 68.17 58.90 92.43 68.17
+MFVLR (Ours) 100 100 74.89- - - 56.3499.50 55.71 100 100 73.20 99.91 100 75.63
+Cross-dataset evaluation.To further assess the generalization
+capability of MFVLR, we performed cross-dataset evaluations
+by training models on FF++ and testing them on FF++,
+CelebDF, DFDC, and DF-1.0. Due to the limited class labels
+available in FF++, only the first two levels of text prompts
+in FF++ are leveraged to train our MFVLR model. As shown
+in Table VIII, the AUC of the proposed MFVLR approach is
+approximately 3.28% higher than the recent model MSCCNet
+on the DF-1.0 dataset, demonstrating its stronger generaliza-
+tion performance, which is attributed to the powerful global
+space and residual forgery feature extraction capabilities of our
+model. Besides, we believed that our model could learn com-
+prehensive and rich language representations, which enables
+the vision module to capture more diverse and discriminative
+visual forged traces via vision-language alignment.
+Robustness to general image corruptions.We evaluated
+the robustness of detectors against various unseen image
+distortions by training models on GenFace and testing them
+on distorted images from DF-1.0 [56]. Seven types of per-
+turbations are included, with each applied at five different
+intensity levels. As displayed in Fig. 7, detectors are tested
+using diverse image perturbations like saturation adjustments,
+contrast changes, block distortions, white Gaussian noise,
+blurring, pixelation, and video compression. We computed
+the average AUC scores of detectors across seven types of
+corrupted images, with an intensity level of 0 representing
+pristine images without degradation. The AUC variations for
+all detectors under different levels of distortion severity are
+presented in Fig. 7. The results demonstrate that our model
+consistently outperforms most networks across seven types of
+image distortions.
+V. ABLATIONSTUDY
+A. Effects of various modules
+In order to assess the impact of each component on learning
+capability, we evaluated the performance of models on FSLSD
+and LatDiff after training with DiffFace. Table VI displays
+the ablation results of the proposed network. AD enhances
+the performance by 3.40% AUC on LatDiff, showing that
+reconstructing appearance images could enhance the learning
+of general visual forgery embeddings, to facilitate the advance-
+ment of face forgery detection. Meanwhile, MD improves
+performance by 2.12% AUC on LatDiff, demonstrating that
+DFFDL could benefit from the fine-grained pixel-level facial
+forgery representation learning. The addition of the RE module
+(+7.17% AUC and +7.65% mIoU) is evident, verifying that
+residuals provide useful knowledge for DFFDL. LE boosts
+AUC and mIoU by 2.68% and 1.47% on LatDiff, respectively,
+which shows that fine-grained class-aware linguistic represen-
+tations can promote the model to study complementary and
+
+=== PAGE 11 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 11
+TABLE IV: Cross-diffusion evaluation on GenFace. ACC, AUC, and mIoU scores (%) on remaining diffusion-based generators,
+after training using one diffusion-based generator.
+Training Set Model
+Testing Set
+DDPM LatDiff CollDiff DiffFace Diffae
+ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑
+CollDiff
+Xception [1] 55.69 96.31 - 49.98 70.45 - - - - 50.17 71.98 - 50.19 59.50 -
+ViT [23] 55.06 61.83 - 51.03 48.64 - - - - 50.26 50.32 - 50.51 49.97 -
+CViT [22] 99.74 99.97 - 49.98 47.59 - - - - 81.97 98.80 - 90.56 99.83 -
+DIRE [26] 91.52 81.05 - 50.02 65.99 - - - - 60.79 93.68 - 56.85 96.86 -
+FreqNet [27] 93.48 85.42 - 49.91 55.59 - - - - 50.04 61.18 - 99.95 99.98 -
+CLIP [34] 51.58 53.92 - 50.21 46.17 - - - - 50.26 48.64 - 49.82 48.36 -
+MFCLIP [21]100 100 -99.1999.97 - - - -99.6399.96 - 93.9499.99 -
+FatFormer [45] 53.81 55.52 - 53.90 49.03 - - - - 54.80 52.71 - 52.90 50.65 -
+VLFFD [19] 94.25 96.01 - 56.89 64.06 - - - - 82.29 94.67 - 72.43 92.99 -
+DD-VQA [20] 93.20 97.44 - 55.60 70.76 - - - - 83.77 91.59 - 73.08 92.94 -
+C2P-CLIP [38] 94.86 97.05 - 57.09 79.86 - - - - 86.94 95.83 - 76.97 93.85 -
+SIDA [29] 95.80 98.53 96.76 59.31 86.78 90.59 - - - 89.57 97.86 69.50 79.59 94.67 69.86
+DiffForensics [30] 96.78 99.06 97.82 95.46 96.59 89.59 - - - 90.56 98.97 70.43 80.67 95.69 70.53
+M2TR [14] 99.84 99.99 97.23 92.37 99.93 88.98 - - - 54.03 97.10 65.58 90.40 99.94 54.75
+HiFi-Net [16] 95.32 99.45 94.59 92.44 98.90 87.54 - - - 56.86 98.31 67.50 93.11 99.95 60.98
+MSCCNet [15] 99.90 99.99 97.96 93.45 99.02 89.57 - - - 60.32 99.02 68.56 94.52 99.30 68.07
+MFVLR (Ours) 100 100 98.5696.7099.99 91.37- - - 92.6499.98 72.94 99.96 99.99 71.32
+DiffFace
+Xception [1] 99.98 99.98 - 50.00 48.31 - 50.00 52.97 - - - - 50.07 87.49 -
+ViT [23] 87.00 97.01 - 49.11 42.97 - 49.82 49.00 - - - - 48.74 40.90 -
+CViT [22] 50.08 77.27 - 49.98 54.22 - 50.04 59.65 - - - - 47.52 40.44 -
+DIRE [26] 50.04 75.32 - 50.00 47.21 - 59.79 96.91 - - - -73.5596.53 -
+FreqNet [27] 49.85 82.21 - 51.77 73.37 - 49.70 75.62 - - - - 43.43 58.69 -
+CLIP [34] 76.34 91.74 - 49.98 50.59 - 51.56 57.34 - - - - 55.90 51.90 -
+MFCLIP [21]99.99 99.99 - 85.3299.94 - 50.57 75.40 - - - - 52.1299.92 -
+FatFormer [45] 79.54 94.20 - 52.89 53.94 - 53.76 59.02 - - - - 57.89 54.64 -
+VLFFD [19] 77.84 94.76 - 62.33 84.97 - 53.66 60.23 - - - - 58.08 87.96 -
+DD-VQA [20] 90.22 99.98 - 63.75 83.88 - 54.07 59.01 - - - - 59.89 88.40 -
+C2P-CLIP [38] 77.86 95.89 - 83.45 85.74 - 55.67 72.49 - - - - 58.97 92.66 -
+SIDA [29] 91.48 98.56 59.77 83.69 86.04 58.94 56.71 75.62 56.15 - - - 57.65 90.25 73.04
+DiffForensics [30] 90.87 97.53 60.38 80.72 87.49 52.81 58.96 77.59 55.64 - - - 56.89 97.96 70.36
+M2TR [14] 50.52 90.64 49.99 50.00 89.83 49.98 50.00 69.36 49.98 - - - 50.04 89.90 69.18
+HiFi-Net [16] 53.87 92.42 51.67 53.76 88.55 51.93 53.08 74.87 52.76 - - - 53.61 92.04 71.89
+MSCCNet [15] 54.88 94.07 52.08 52.98 88.43 50.62 55.76 78.45 54.07 - - - 54.76 94.65 72.94
+MFVLR (Ours) 99.99 99.99 65.60 86.6493.60 71.68 61.97 98.43 57.28- - - 54.63 98.97 75.47
+Diffae
+Xception [1] 53.96 94.01 - 49.98 61.27 - 50.12 68.04 - 49.99 52.69 - - - -
+ViT [23] 50.52 50.04 - 49.45 45.06 - 49.70 47.99 - 49.51 46.50 - - - -
+CViT [22] 57.78 98.04 - 50.23 83.37 - 50.00 54.42 - 50.13 80.12 - - - -
+DIRE [26] 57.45 94.21 - 50.07 62.30 - 50.12 74.84 - 64.14 99.02 - - - -
+FreqNet [27] 53.48 94.58 - 49.91 44.41 - 59.86 53.10 - 50.04 48.82 - - - -
+CLIP [34] 50.52 51.58 - 49.91 50.11 - 50.80 52.07 - 49.97 50.32 - - - -
+MFCLIP [21]98.99 99.99 -99.8299.98 - 60.07 75.80 -99.99 99.99 - - - -
+FatFormer [45] 53.56 54.85 - 52.01 53.89 - 52.58 54.05 - 52.57 53.65 - - - -
+VLFFD [19] 62.79 93.43 - 60.77 82.54 - 52.78 65.00 - 63.29 98.36 - - - -
+DD-VQA [20] 64.45 95.06 - 61.78 83.11 - 52.87 69.57 - 60.99 96.47 - - - -
+C2P-CLIP [38] 67.55 97.86 - 63.89 95.37 - 55.92 76.39 - 65.87 97.54 - - - -
+SIDA [29] 69.86 98.67 70.41 65.89 96.20 57.64 56.99 79.47 56.49 68.96 98.05 76.59 - - -
+DiffForensics [30] 70.68 99.04 71.28 66.17 97.34 56.39 57.66 74.21 55.04 70.27 98.93 77.68 - - -
+M2TR [14] 50.01 87.78 67.92 50.00 74.32 49.66 50.00 65.35 49.81 50.01 78.61 72.14 - - -
+HiFi-Net [16] 54.94 89.00 68.97 53.48 76.32 52.45 52.77 69.25 50.97 53.06 82.37 74.85 - - -
+MSCCNet [15] 55.80 92.04 69.17 56.98 79.01 55.69 54.55 72.78 51.34 54.83 85.07 75.96 - - -
+MFVLR (Ours)94.65 99.76 73.8468.9799.99 58.09 61.79 79.73 58.0984.60 99.83 79.15- - -
+comprehensive visual forgery features, to benefit DFFDL. The
+addition of LD further boosts the performance by 7.52% AUC
+and 6.54% mIoU, respectively, indicating that reconstructing
+text prompts could guide the model to learn more general and
+fine-grained language embeddings, to explore more compre-
+hensive and general visual face manipulated representations
+via vision-language matching.
+B. Influences of transformer blocks in MVE
+We investigate the impact of the number of transformer
+blocks in MVE. As Table XI displays, the performance of
+MFVLR progressively increases with transformer blocks going
+deeper. In detail, an about 1.48% increase of AUC could be
+reached by introducing a transformer block, which verifies
+that capturing diverse global relations among local feature
+patches is vital. In addition, performance enhancements could
+be realized as the depth of the transformer block increases.
+The AUC reaches a maximum as four transformer blocks are
+engaged. We argued that too many transformer blocks would
+yield redundancy and interfere with the model learning.
+C. Influence of various loss functions
+To study the effectiveness of different loss functions, we per-
+formed the cross-generator evaluation by training models using
+
+=== PAGE 12 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 12
+(a) (b) (c)
+Fig. 8: (a) and (b) display the ablation results of CLIP (w/ TD or w/o TD) and MFVLR (w/ LD or w/o LD), respectively.
+(c) shows the mIoU scores of MFVLR (w/ LD or w/o LD) on images created by various diffusions. We trained models using
+CollDiff, and tested them on DDPM, LatDiff, Diffae, and DiffFace. TD is the text decoder, and LD is the language decoder.
+TABLE V: Cross-generator evaluation on AM. ACC and AUC
+scores (%) on remaining generators, after training using one
+generator.
+Training Set Model
+Testing Set
+Diffae LatTrans IAFaces
+ACC AUC ACC AUC ACC AUC
+Diffae
+Xception [1] - - 50.00 68.76 52.05 55.51
+ViT [23] - - 55.35 76.10 50.45 54.20
+CViT [22] - - 50.00 52.03 49.95 66.64
+M2TR [14] - - 50.00 71.28 50.00 64.93
+DADF [12] - - 50.37 74.24 53.95 65.39
+HiFi-Net [16] - - 51.42 75.07 52.12 68.03
+MSCCNet [15] - - 50.56 76.88 54.67 70.39
+DIRE [26] - - 50.00 41.69 50.30 63.01
+FreqNet [27] - - 50.21 51.06 50.00 63.91
+CLIP [34] - - 50.00 58.83 49.80 49.65
+MFCLIP [21] - - 59.96 79.76 54.55 90.27
+FatFormer [45] - - 50.34 59.67 50.93 52.45
+VLFFD [19] - - 51.02 60.74 51.02 72.81
+DD-VQA [20] - - 51.36 69.04 53.84 74.90
+MFVLR (Ours)- -59.98 82.31 69.31 91.86
+LatTrans
+Xception [1] 51.31 63.14 - - 50.05 50.07
+ViT [23] 49.73 49.03 - - 50.05 50.97
+CViT [22] 50.76 62.08 - - 50.25 51.71
+M2TR [14] 50.42 76.96 - - 50.00 63.06
+DADF [12] 52.90 77.53 - - 51.90 65.78
+HiFi-Net [16] 53.80 78.54 - - 52.05 66.22
+MSCCNet [15] 54.70 79.03 - - 52.18 67.41
+DIRE [26] 50.02 52.35 - - 50.00 56.72
+FreqNet [27] 49.88 49.16 - - 50.00 60.38
+CLIP [34] 50.02 47.69 - - 50.00 53.05
+MFCLIP [21] 53.00 75.00 - - 55.26 75.41
+FatFormer [45] 50.05 50.21 - - 50.09 54.87
+VLFFD [19] 50.07 63.76 - - 50.23 65.96
+DD-VQA [20] 52.65 65.00 - - 50.12 66.45
+MFVLR (Ours) 67.04 84.69- -56.38 76.29
+DiffFace and testing them on FSLSD and FaceSwapper. As
+Table X displays, when the model is trained with the FD loss
+function, the AUC is 85.47% on FaceSwapper. Nevertheless,
+an around 2.66% increase of AUC could be realized by adding
+the CMC loss, demonstrating the significance of cross-modal
+contrastive learning. Furthermore, the gains from introducing
+the LR loss (+3.04%) are obvious. We believed that the LR
+loss could supervise the model to capture more abundant
+and fine-grained class-aware language representations, which
+could benefit the extraction of comprehensive and diverse
+visual forgery patterns.
+TABLE VI: The ablation results of MVLRT. We tested de-
+tectors on FSLSD and LatDiff, after training using DiffFace.
+Model
+Testing Set
+FSLSD LatDiff
+IE AD RE MD LE LD ACC AUC mIoU ACC AUC mIoU
+✓- - - - - 50.00 47.72 - 58.40 70.46 -
+✓ ✓- - - - 50.00 50.86 - 59.96 73.06 -
+✓- -✓- - 50.00 48.62 47.96 60.32 72.58 52.94
+✓ ✓ ✓- - - 52.76 59.27 - 63.97 80.23 -
+✓ ✓ ✓ ✓- - 53.68 60.73 58.97 65.75 83.40 63.67
+✓ ✓ ✓ ✓ ✓- 54.03 62.15 61.54 70.36 86.08 65.14
+✓ ✓ ✓ ✓ ✓ ✓58.97 69.02 65.04 86.64 93.60 71.68
+D. Impact of introducing VIM into vision-language models
+We examined the effect of the plug-and-play VIM module.
+To demonstrate that the VIM module could be seamlessly in-
+tegrated into various vision-language models for performance
+enhancements, we conducted the cross-generator evaluation by
+training models using CollDiff and testing them on DDPM,
+LatDiff, DiffFace and Diffae. As shown in Table IX, it is evi-
+dent that VIM enhances the generalizability of VLM to unseen
+face forgeries created via diffusion networks. For example, due
+to the introduction of VIM to the CLIP text encoder, the AUC
+of CLIP is improved by 4.8% on LatDiff after training using
+CollDiff, with a growth of 12.59M parameters. Likewise, since
+VIM is introduced into the MFVLR language encoder, the
+AUC of MFVLR is increased by 2.22%. When VIM is added
+to the CLIP text decoder or the MFVLR language decoder,
+the performance of CLIP and MFVLR increases by 6.10%
+AUC and 3.13% AUC on Diffae, accordingly. We further
+investigated the impact of the VIM module on localization
+performance. In Table IX, we noticed that the mIoU of our
+MFVLR model is enhanced by 5.96% on DiffFace with the
+addition of VIM. We believed that our model could capture
+more comprehensive and fine-grained language representations
+using vision-guided language reconstruction, and thus extract
+more comprehensive and fine-grained facial forgery patterns
+through vision-language matching.
+E. Influences of the placement and number of VIM
+To explore VIM in greater depth, we delve into the influence
+of the placement and number of VIM. In Table IX, the per-
+
+=== PAGE 13 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 13
+TABLE VII: Cross-generator evaluation on FS. ACC and AUC
+scores (%) on remaining generators, after training using one
+generator.
+Training Set Model
+Testing Set
+DiffFace FSLSD FaceSwapper
+ACC AUC ACC AUC ACC AUC
+DiffFace
+Xception [1] - - 50.00 48.45 50.00 83.60
+ViT [23] - - 52.27 54.47 65.58 86.02
+CViT [22] - - 50.00 49.28 50.04 79.17
+M2TR [14] - - 50.82 56.90 51.49 95.48
+DADF [12] - - 51.70 58.39 52.49 96.03
+HiFi-Net [16] - - 53.25 59.36 54.79 97.16
+MSCCNet [15] - - 54.57 60.93 58.10 98.46
+DIRE [26] - - 50.00 55.49 50.00 88.01
+FreqNet [27] - - 49.75 44.42 49.65 69.93
+CLIP [34] - - 51.06 55.37 70.54 92.62
+MFCLIP [21] - - 55.96 65.76 76.52 99.93
+FatFormer [45] - - 51.95 57.35 71.87 93.76
+VLFFD[19] - - 52.44 56.03 72.97 94.03
+DD-VQA [20] - - 52.51 57.89 73.74 95.99
+MFVLR (Ours)- -58.97 69.02 77.31 99.95
+FSLSD
+Xception [1] 50.26 54.22 - - 51.49 72.14
+ViT [23] 50.01 49.08 - - 50.21 64.98
+CViT [22] 50.03 47.60 - - 50.46 84.44
+M2TR [14] 50.42 54.15 - - 51.49 95.48
+DADF [12] 50.96 54.91 - - 52.06 95.31
+HiFi-Net [16] 51.82 55.03 - - 51.77 96.70
+MSCCNet [15] 51.06 54.89 - - 52.79 96.82
+DIRE [26] 50.00 51.13 - - 50.14 57.44
+FreqNet [27] 53.44 55.08 - - 49.22 72.31
+CLIP [34] 49.67 45.77 - - 52.37 72.90
+MFCLIP [21] 53.65 55.59 - - 55.52 92.15
+FatFormer [45] 52.02 47.33 - - 54.71 73.09
+VLFFD[19] 51.78 53.56 - - 53.82 84.66
+DD-VQA [20] 51.39 54.76 - - 54.60 86.51
+MFVLR (Ours) 58.76 60.77- -60.73 96.20
+TABLE VIII: Cross-dataset generalization. ACC and AUC
+scores on FF++, Celeb-DF, DFDC, and DF-1.0 after training
+using FF++.
+Method
+FF++ Celeb-DF DFDC DF-1.0
+ACC AUC ACC AUC ACC AUC ACC AUC
+ViT [23] 62.44 67.07 62.28 59.75 56.18 58.31 58.05 61.27
+CViT [22] 90.47 96.69 50.75 64.70 60.95 65.96 56.15 62.42
+M2TR [14] 97.93 99.51 - 68.20 - - - -
+RECCE [57] 97.06 99.32 - 68.71 - 69.06 - -
+CEViT [58] 93.67 98.36 44.24 65.29 66.14 75.55 62.16 67.51
+FoCus [59] 96.43 99.15 - 76.13 - 68.42 - -
+UIA-ViT [60] - 99.33 - 82.41 - 75.80 - -
+CC-Net [24] - 98.70 - 72.04 - 72.35 - -
+Qiao et al. [25] - 100- 70.00 - - - -
+Yu et al. [61] - 99.55 - 72.86 - 69.23 - -
+Guan et al. [62] - 99.17 - 95.14- 74.65 - -
+CLIP [34] 67.79 69.57 64.18 65.42 58.42 57.65 57.63 56.01
+VLFFD [19] - 99.23 - 84.80 - 84.74- -
+MSCCNet [15] 97.21 98.94 65.98 73.02 70.56 73.44 65.21 70.69
+MFVLR (Ours) 96.37 99.6966.73 73.0872.89 75.0667.68 73.97
+formance of our model attains the maximum when two VIMs
+are placed in LE and LD, respectively. Besides, as Table XII
+shows, our method with the VIM placed between MHA and
+FF in LE, and after MHA and FF in LD, achieves the best
+performance among models with VIMs at different locations,
+which emphasizes that the placement of VIMs plays a critical
+role in maximizing the model effectiveness. We argue that this
+placement strategically optimizes the interaction between the
+MHA and FF layers, ensuring that the model can effectively
+capture long-range vision-language modelling dependencies
+and enhance both local and global features across vision and
+language modalities.
+F . Effects of different interaction details in VIM
+For VIM, we employed the class token as the key and value.
+Next, we varied them to observe the effect on performance
+and efficiency. As Table XV shows, the FLOPs of the model
+are increased by about 2.7G when all tokens are included.
+Unlike the quadratic cost incurred when all tokens are used as
+keys and values, the attention map generation becomes linear,
+leading to a more efficient process. This demonstrates the
+advantage of VIM in improving efficiency. We further studied
+the impact of various fusion methods, such as concatenation,
+summation, and cross-attention. In Table XIV, among all com-
+pared strategies, the proposed cross-attention schemes achieve
+the best AUC and MIoU, demonstrating the effectiveness of
+the various global and fine-grained fusion between vision and
+language features.
+G. Impacts of different language prompts
+To evaluate the model’s sensitivity to variations in text
+prompt design, we conduct an ablation study including varying
+prompt granularity and missing forgery-type cues. We assess
+the performance of our method on FSLSD and LatDiff af-
+ter training using DiffFace by gradually adding hierarchical
+texts. In Table XIII, we observe that the performance of our
+model tends to improve with the increase of fine-grained text
+prompts. Specifically, both the AUC and MIoU of MFVLR are
+improved on FSLSD and LatDiff as text prompt granularity
+from levels 1 to 4 is added, validating that hierarchical text
+prompts guide the model to mine more general and discrimi-
+native forgery cues, to enhance the advancement of DFFDL. In
+addition, we assess the performance of our method using the
+cross-generator protocol by missing forgery-type hierarchical
+texts. We note that the model exhibits strong sensitivity to the
+level 2 text prompt and the level 4 text prompt. In detail, about
+6% and 4% decrease of AUC could be achieved by missing
+the level 2 or level 4 text prompts, respectively, while the AUC
+of our model without level 3 prompts or level 1 prompts is
+reduced by about 2.3% and 1%, respectively. This indicates
+that the two levels of prompts can provide valuable semantic
+information to facilitate DFFDL.
+H. Effects of language decoder
+To analyze the effects of the language decoder, we investi-
+gated the performance of CLIP and our MFVLR method on
+DDPM, LatDiff, and Diffae after training on CollDiff. The
+results of model ablations are shown in Fig. 8. We add a text
+decoder to CLIP aligned with its text encoder. As shown in
+Fig. 8 (a), we observed that the performance of the CLIP sig-
+nificantly grows with the addition of a text decoder. Likewise,
+Fig. 8 (b) displays that the results of our MFVLR model show
+an increasing trend due to the introduction of the language
+decoder. In detail, the AUC of CLIP and our model is increased
+by about 4% on DDPM, respectively. Besides, as Fig. 8 (c)
+shows, the mIoU of MFVLR is improved considerably on the
+images generated by diffusion models like DDPM, LatDiff,
+
+=== PAGE 14 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 14
+TABLE IX: The impact of the VIM module. We tested models on DDPM, LatDiff, DiffFace, and Diffae, after training on
+CollDiff. * denotes the text or language encoder with VIM, † represents the text or language decoder with VIM, and ‡ means
+both the text encoder and decoder with VIM or the language encoder and decoder with VIM.
+Method
+DDPM LatDiff DiffFace Diffae
+Params (M)ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑ACC AUC mIoU↑
+CLIP w/o VIM 51.58 53.92 - 50.21 46.17 - 50.26 48.64 - 49.82 48.36 - 84.23
+CLIP* w/ VIM 55.07 59.70 - 51.29 50.97 - 50.39 51.33 - 51.36 52.57 - 96.82
+CLIP† w/ VIM 53.28 59.22 - 50.04 49.62 - 51.34 53.52 - 50.39 54.46 - 115.72
+CLIP‡ w/ VIM 56.30 60.21 - 52.06 51.49 - 52.67 54.49 - 51.57 59.90 - 128.31
+Ours w/o VIM 95.68 97.89 94.96 92.27 93.64 86.93 86.75 92.69 66.98 93.25 93.90 64.16 121.07
+Ours* w/ VIM 98.49 99.76 97.85 93.90 95.86 88.34 86.90 94.93 68.76 94.89 95.92 67.64 133.66
+Ours† w/ VIM 97.93 98.60 96.77 93.45 94.99 87.76 88.35 96.37 69.80 96.04 96.93 68.46 128.41
+Ours‡ w/ VIM100 100 98.56 96.70 99.98 91.37 92.64 99.98 72.94 99.96 99.99 71.32141.00
+Source
+Recon.
+Residual
+Real Real Real Diffusion Diffusion Diffusion GAN GAN GAN
+Fig. 9: The visualization of the residual between the source image and the reconstructed one. The first to third rows represent
+the source image, reconstructed image, and the residual, respectively.
+TABLE X: Effects of loss functions. We tested models on
+FSLSD and FaceSwapper, after training on DiffFace.
+Loss
+Function
+FSLSD FaceSwapper
+ACC AUC ACC AUC
+Lfd 50.00 47.72 50.00 85.47
+Lfd+Lcmc 52.95 50.48 54.76 88.13
+Lfd+Lar+Lfl 53.68 60.73 59.66 90.48
+Lfd+Lar+Lfl+Lcmc 53.87 61.20 64.74 92.86
+Lfd+Lar+Lfl+Lcmc+Lkl 54.03 62.15 69.70 96.91
+Lfd+Lar+Lfl+Lcmc+Lkl+Llr 58.97 69.02 77.31 99.95
+TABLE XI: Impacts of the number of transformer blocks in
+MVE. We tested models on FSLSD and FaceSwapper, after
+training on DiffFace.
+Transformer Block
+FSLSD FaceSwapper
+ACC AUC ACC AUC
+B=0 50.86 60.97 71.53 94.78
+B=1 51.97 62.45 73.68 96.09
+B=2 52.90 62.88 73.49 96.80
+B=3 54.21 64.96 76.17 97.26
+B=458.97 69.02 77.31 99.95
+B=5 55.76 65.99 76.28 99.90
+Diffae, and DiffFace, since the language decoder is added.
+We argued that language reconstruction offers more abundant
+semantic information, to push the model to capture more
+comprehensive and discriminative visual forgery traces, which
+TABLE XII: Ablation study of the placement and number of
+VIM. † denotes the VIM before MHA and FF. * means the
+VIM between MHA and FF. ‡ is the VIM after MHA and FF.
+First column symbol: various VIM positions in LE; Second
+column symbol: various VIM positions in LD.
+Method
+FSLSD LatDiff
+ACC AUC MIoU ACC AUC MIoU
+LE
+Ours w/VIM†* 55.12 64.86 58.42 83.98 90.55 68.06
+Ours w/VIM** 57.99 65.48 63.79 85.67 92.96 70.72
+Ours w/VIM‡* 56.82 63.55 59.91 84.45 92.78 69.26
+LD
+Ours w/VIM*† 55.79 66.15 58.81 85.63 91.92 68.05
+Ours w/VIM** 56.42 67.34 60.36 84.37 90.32 69.92
+Ours w/VIM*‡ 58.97 69.02 65.04 86.64 93.60 71.68
+Ours w/VIM‡‡ 54.92 59.96 58.94 79.81 90.17 67.09
+facilitates the development of DFFDL.
+I. Impacts of various number of blocks in LE and LD
+To delve into the impact of varying the number of blocks
+in LE and LD, we increase the number of transformer blocks
+in LE from 10 to 13, while six blocks in LD are involved.
+In Table XVI, the performance in common increases with
+the growth of the number of transformer blocks. Both the
+AUC and MIoU achieve the maximum when twelve blocks are
+
+=== PAGE 15 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 15
+TABLE XIII: Impacts of different language prompts.
+Method
+FSLSD LatDiff
+ACC AUC MIoU ACC AUC MIoU
+Ours w/L1 53.43 58.80 54.80 82.43 89.55 67.96
+Ours w/L1+L2 55.62 60.93 58.18 83.25 91.76 69.02
+Ours w/L1+L2+L3 56.79 64.97 62.41 85.09 92.89 70.53
+Ours w/L1+L2+L3+L458.97 69.02 65.04 86.64 93.60 71.68
+Ours w/o L1 57.21 68.09 63.76 85.08 92.09 70.41
+Ours w/o L2 55.63 63.74 61.08 83.91 90.76 68.93
+Ours w/o L3 56.37 66.72 62.30 84.99 91.02 69.37
+Ours w/o L4 55.99 65.40 61.79 84.67 91.98 69.04
+TABLE XIV: Effects of different fusions in VIM. We tested
+models on FSLSD and LatDiff, after training on DiffFace.
+Interaction
+FSLSD LatDiff
+ACC AUC MIoU ACC AUC MIoU
+Concatenation 54.07 64.09 64.58 85.71 92.64 69.10
+Summation 55.96 65.78 64.31 84.53 90.79 68.42
+Cross-Attention58.97 69.02 65.04 86.64 93.60 71.68
+TABLE XV: Impacts of various keys and values in VIM.
+Interaction
+FSLSD LatDiff Params
+(M)
+FLOPs
+(G)ACC AUC MIoU ACC AUC MIoU
+KV w/all 53.88 65.20 62.94 85.08 92.57 70.03 141.00 175.71
+KV w/patch 57.64 64.89 60.76 84.97 90.25 68.19 141.00 175.70
+KV w/cls58.97 69.02 65.04 86.64 93.60 71.68141.00 173.04
+TABLE XVI: Effects of various number of transformer blocks
+in LE and LD. We tested models on FSLSD and LatDiff, after
+training on DiffFace.
+Transformer Block FSLSD LatDiff
+LE LD ACC AUC MIoU ACC AUC MIoU
+10 6 53.43 58.80 48.99 85.43 90.55 66.92
+11 6 55.69 62.74 53.91 83.86 91.98 68.40
+12 6 56.96 63.48 54.11 85.95 92.17 69.61
+13 6 54.32 61.07 52.96 84.91 92.06 67.83
+12 5 50.00 62.18 55.00 79.56 89.63 62.60
+12 6 53.43 65.80 60.99 82.43 92.55 66.90
+12 758.97 69.02 65.04 86.64 93.60 71.68
+12 8 55.46 66.32 58.93 85.70 91.19 68.56
+utilized and begin to decrease thereafter. We further raise the
+number of blocks in LD from 5 to 8, when twelve blocks in LE
+are used. We notice that the performance reaches a maximum
+when seven blocks in LD are employed and then decreases
+when the number of blocks equals eight. This suggests that
+there is an optimal number of transformer blocks beyond
+which adding more blocks does not lead to better performance.
+Additionally, excessive blocks may cause the model to overfit,
+as it starts to memorize the training distribution and does not
+generalize well to unseen generators, ultimately reducing its
+effectiveness.
+J. Impacts of various localization mask thresholds
+To study the sensitivity of different generators to the thresh-
+old of the forgery localization mask, we train our model using
+0.05 0.10 0.15
+Threshold
+94
+96
+98
+100
+AUC (%)
+(a) Detection
+0.05 0.10 0.15
+Threshold
+40
+50
+60
+70
+mIoU (%)
+(b) Localization
+DDPM CollDiff LatDiff Diffae
+Fig. 10: Effect of the mask threshold on performance across
+different generators.
+RGB
+image
+   GT
+  Mask
+Predicted
+   Mask
+Heatmap   
+EFS
+LatDiff Diffae
+AM FS
+CollDiffReal Real Diffae Difface Difface
+}
+}
+}
+0.0   
+0.5   
+1.0   
+(I)
+Heatmap   (II)
+Heatmap   (III)
+Fig. 11: The heatmap visualization of various modules in
+MFVLR. GT mask means the ground truth mask. For the
+heatmap, the hotter (red color) a position is, the more forgery
+traces are captured by the models.
+DiffFace by varying the threshold from 0.05, 0.10, to 0.15
+and evaluate the localization and detection performance of
+our model on diffusion-based generators, including CollDiff,
+LatDiff, DDPM, and Diffae. In Fig 10, the AUC of our model
+remains stable across different thresholds under the cross-
+generator evaluation, indicating that threshold selection has
+little impact on detection. By contrast, the mIoU of our model
+is much more sensitive to the threshold, which shows that
+it mainly influences localization performance of models. In
+Fig 10 (b), the localization performance generally improves
+with the increase of the threshold. Among all thresholds, the
+mIoU attains its maximum at 0.1 and then decreases. The
+mIoU of our model fluctuates relatively little across various
+generators under the threshold of 0.1. We believe that the
+ground truth mask often contains both clear forgery regions
+and weak noise areas around boundaries or in the background.
+When the threshold is too low, the noisy regions are retained,
+which leads to more false positives and poorer mask quality.
+A large threshold may remove not only noisy responses but
+also useful manipulated regions, which may cause incomplete
+masks and reduce localization accuracy. A proper threshold
+can suppress noise while preserving the main manipulated
+regions, resulting in better localization performance.
+VI. VISUALIZATION
+Visualization of residual images.To intuitively observe the
+images reconstructed by our model and the corresponding
+
+=== PAGE 16 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 16
+DiffFace Diffae
+Image
+ GT
+Mask
+HiFi-Net
+MSCCNet
+DiffFace DiffFace Diffae Diffae
+Ours
+Fig. 12: The visualization of the manipulation localization of
+various FFDL models. GT mask means the ground truth mask.
+residuals, we visualized the source images from various
+generative models, the corresponding reconstructed images
+generated by our model, and the residuals. In Fig 9, we can
+observe that there are significant distinct between the real
+facial residual images and fake ones. In addition to the residual
+inconsistency between authentic and manipulated images, we
+also noticed that residuals in facial images generated by dif-
+fusion are evident visually. However, they are rarely visible in
+GAN-synthesized ones. Therefore, residuals could be regarded
+as valuable prior information, to facilitate the DFFDL. We
+argued that pristine face images tend to contain rich details
+and texture information, which are often captured and restored
+during reconstruction. Nevertheless, face images created by
+diffusion models may not be able to retain the high-frequency
+information of the original real one, such as texture, which
+increases the difficulty of reconstruction. By contrast, forgery
+face images generated by GAN preserve more high-frequency
+information of the source real images than those created by
+diffusion [21], which is helpful for reconstruction, so the
+residual is relatively small.
+Visualization of forgery localization.To further study the
+influence of various modules in MFVLR, we showed the
+heatmap of various settings in Fig. 11. Each column displays
+a face yielded by various generators. The second and third
+rows show the ground truth mask and predicted mask, re-
+spectively. The fourth to sixth rows illustrate the heatmap of
+three networks: (I) MFVLR only with MVE; (II) MFVLR
+with MVE and VD; (III) MFVLR consisting of the MVE,
+VD, and FLT. Compared to (I), the VD module (II) can
+explore the long-range forgery patterns. FLT (III) further
+captures more precise and comprehensive manipulated traces
+than (II), demonstrating that language-guided face forgery
+representation learning could boost the DFFDL. In detail,
+in the fifth column, we added the bangs to the real image
+through the attribute-manipulated diffusion model Diffae, and
+we observed that our model could, to a large extent, recognize
+the manipulated regions. Furthermore, compared with the
+heatmap visualization which tends to be employed to help
+the detector conduct manipulation localization, FFDL can
+achieve more precise and pixel-level forgery localization. In
+addition, FFDL effectively highlights the manipulated regions,
+and provides clear and detailed visual evidence of facial image
+tampering. Specifically, it is noticed that although the facial
+forgery patterns are successfully mined and visualized through
+heatmaps, the authentic and forged faces are indistinguishable
+merely based on them. By contrast, the predicted mask could
+display distinguishable and comprehensive forgery regions
+between real and fake facial images.
+To demonstrate the superiority of our MFVLR method for
+manipulation localization, we visualized the predicted mask
+generated by various FFDL models, including HiFi-Net and
+MSCCNet. As illustrated in Fig 12, each column displays a
+fake face generated by various diffusion models. The first and
+second rows denote the RGB images and ground truth mask,
+respectively. The second to fifth rows represent the predicted
+mask yielded by our MFVLR method, HiFi-Net, and MSC-
+CNet, respectively. Compared with the latest FFDL methods,
+our model captures more comprehensive forgery traces and
+achieves more accurate face manipulation localization.
+VII. CONCLUSION
+We design an innovative MFVLR approach to facilitate
+the development of generalizable DFFDL. First, we observe
+that there are significant inconsistencies between the real and
+fake residuals. Thus, we design the MVE module with the
+residual encoder to mine the discriminative and fine-grained
+residual forgery traces, and integrate them with the global
+facial image forgery features. Second, we devise the vision
+decoder to reconstruct the image appearance and achieve pixel-
+level forgery predictions for images, which further boosts the
+learning of manipulated representations. Finally, we propose
+an FLT module to extract fine-grained and general class-aware
+language embeddings, to enhance the learning of face forgery
+representations through vision-language contrastive learning.
+Besides, we design a novel plug-and-play VIM module to con-
+duct the vision-guided language representation learning, which
+could be integrated into any VLM like CLIP, to improve the
+generalization to face images generated using diffusion models
+with only a slight increase in the number of parameters.
+Limitations.Although our model has attained the generaliz-
+able DFFDL, we may need to improve model generalization to
+unseen face forgery images synthesized by state-of-the-art dif-
+fusion models, and decrease computational costs. In the future,
+we intend to combine the proposed MFVLR method with the
+multi-modal large language model, to achieve visual question
+answering and face manipulation detection and localization.
+Besides, our method could be applied to detect faces generated
+by other AIGC methods such as GANs, V AEs or flow models,
+which may require slight adjustments or refinements in future
+applications using the specific nature of artifacts produced by
+different generative models.
+REFERENCES
+[1] F. Chollet, “Xception: Deep learning with depthwise separable convolu-
+tions,” inProceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), 2017, pp. 1800–1807.
+[2] K. He, X. Zhang, S. Ren, and J. Sun, “Deep residual learning for image
+recognition,” inProceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), 2016, pp. 770–778.
+
+=== PAGE 17 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 17
+[3] P. Xu, X. Zhu, and D. A. Clifton, “Multimodal learning with transform-
+ers: A survey,”IEEE Transactions on Pattern Analysis and Machine
+Intelligence, vol. 45, no. 10, pp. 12 113–12 132, 2023.
+[4] K. Han, Y . Wang, H. Chen, X. Chen, J. Guo, Z. Liu, Y . Tang, A. Xiao,
+C. Xu, Y . Xu, Z. Yang, Y . Zhang, and D. Tao, “A survey on vision
+transformer,”IEEE Transactions on Pattern Analysis and Machine
+Intelligence, vol. 45, no. 1, pp. 87–110, 2023.
+[5] Y . Zhang, Q. Li, Z. Yu, and L. Shen, “Distilled transformers with locally
+enhanced global representations for face forgery detection,”Pattern
+Recognition, vol. 161, p. 111253, 2025.
+[6] Y . Zhang, T. Wang, M. Shu, and Y . Wang, “A robust lightweight
+deepfake detection network using transformers,” inPRICAI 2022: Trends
+in Artificial Intelligence, Cham, 2022, pp. 275–288.
+[7] I. Goodfellow, J. Pouget-Abadie, M. Mirza, B. Xu, D. Warde-Farley,
+S. Ozair, A. Courville, and Y . Bengio, “Generative Adversarial Nets,”
+inProceedings of the Neural Information Processing Systems (NIPS),
+2014, pp. 2672–2680.
+[8] T. Karras, M. Aittala, S. Laine, E. H ¨ark¨onen, J. Hellsten, J. Lehtinen,
+and T. Aila, “Alias-free generative adversarial networks,” inProceedings
+of the Neural Information Processing Systems (NIPS), 2021.
+[9] T. Karras, S. Laine, M. Aittala, J. Hellsten, J. Lehtinen, and T. Aila,
+“Analyzing and improving the image quality of stylegan,” inProceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), 2020, pp. 8107–8116.
+[10] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,”
+arXiv preprint arXiv:2006.11239, 2020.
+[11] T. Wang, X. Liao, K. P. Chow, X. Lin, and Y . Wang, “Deepfake
+detection: A comprehensive survey from the reliability perspective,”
+ACM Comput. Surv., Oct. 2024.
+[12] Y . Lai, Z. Luo, and Z. Yu, “Detect Any Deepfakes: Segment anything
+meets face forgery detection and localization,” inBiometric Recognition,
+W. Jia, W. Kang, Z. Pan, X. Ben, Z. Bian, S. Yu, Z. He, and J. Wang,
+Eds. Singapore: Springer Nature Singapore, 2023, pp. 180–190.
+[13] H. Dang, F. Liu, J. Stehouwer, X. Liu, and A. K. Jain, “On the detection
+of digital face manipulation,” inProceedings of the IEEE Conference on
+Computer Vision and Pattern recognition (CVPR), 2020, pp. 5781–5790.
+[14] J. Wang, Z. Wu, W. Ouyang, X. Han, J. Chen, Y .-G. Jiang, and S.-N. Li,
+“M2TR: Multi-modal multi-scale transformers for deepfake detection,”
+inProceedings of the International Conference on Multimedia Retrieval
+(ICMR), 2022, p. 615–623.
+[15] C. Miao, Q. Chu, Z. Tan, Z. Jin, T. Gong, W. Zhuang, Y . Wu, B. Liu,
+H. Hu, and N. Yu, “Multi-spectral Class Center Network for face ma-
+nipulation detection and localization,”arXiv preprint arXiv:2305.10794,
+2024.
+[16] X. Guo, X. Liu, Z. Ren, S. Grosz, I. Masi, and X. Liu, “Hierarchical
+fine-grained image forgery detection and localization,” inProceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), 2023, pp. 3155–3165.
+[17] J. Frank, T. Eisenhofer, L. Sch ¨onherr, A. Fischer, D. Kolossa, and
+T. Holz, “Leveraging frequency analysis for deep fake image recog-
+nition,” inProceedings of the International Conference on Machine
+Learning (ICML), 2020.
+[18] R. Durall, M. Keuper, and J. Keuper, “Watch your up-convolution: Cnn
+based generative deep neural networks are failing to reproduce spectral
+distributions,” inProceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR), jun 2020, pp. 7887–7896.
+[19] K. Sun, S. Chen, T. Yao, H. Yang, X. Sun, S. Ding, and R. Ji,
+“Towards general visual-linguistic face forgery detection,”arXiv preprint
+arXiv:2402.01123, 2024.
+[20] Y . Zhang, B. Colman, A. Shahriyari, and G. Bharaj, “Common sense
+reasoning for deep fake detection,”arXiv preprint arXiv:2402.00126,
+2024.
+[21] Y . Zhang, T. Wang, Z. Yu, Z. Gao, L. Shen, and S. Chen, “MFCLIP:
+Multi-modal fine-grained clip for generalizable diffusion face forgery
+detection,”arXiv preprint arXiv:2409.09724, 2024.
+[22] D. Wodajo and S. Atnafu, “Deepfake video detection using convolutional
+vision transformer,” 2021, arXiv preprint arXiv:2102.11126.
+[23] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly,
+J. Uszkoreit, and N. Houlsby, “An image is worth 16x16 words:
+Transformers for image recognition at scale,” inProceedings of the
+International Conference on Learning Representations (ICLR), Austria,
+2021.
+[24] X. Zhu, H. Fei, B. Zhang, T. Zhang, X. Zhang, S. Z. Li, and Z. Lei, “Face
+forgery detection by 3d decomposition and composition search,”IEEE
+Transactions on Pattern Analysis and Machine Intelligence, vol. 45,
+no. 7, pp. 8342–8357, 2023.
+[25] T. Qiao, S. Xie, Y . Chen, F. Retraint, and X. Luo, “Fully unsupervised
+deepfake video detection via enhanced contrastive learning,”IEEE
+Transactions on Pattern Analysis and Machine Intelligence, vol. 46,
+no. 7, pp. 4654–4668, 2024.
+[26] Z. Wang, J. Bao, W. Zhou, W. Wang, H. Hu, H. Chen, and H. Li,
+“DIRE for diffusion-generated image detection,” inProceedings of the
+IEEE International Conference on Computer Vision (ICCV), 2023, pp.
+22 388–22 398.
+[27] C. Tan, Y . Zhao, S. Wei, G. Gu, P. Liu, and Y . Wei, “Frequency-aware
+deepfake detection: Improving generalizability through frequency space
+domain learning,” inProceedings of the AAAI Conference on Artificial
+Intelligence (AAAI), vol. 38, no. 5, 2024, pp. 5052–5060.
+[28] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson,
+T. Xiao, S. Whitehead, A. C. Berg, W.-Y . Lo, P. Dollar, and R. Gir-
+shick, “Segment Anything,” inProceedings of the IEEE International
+Conference on Computer Vision (ICCV), October 2023, pp. 4015–4026.
+[29] Z. Huang, J. Hu, X. Li, Y . He, X. Zhao, B. Peng, B. Wu, X. Huang, and
+G. Cheng, “Sida: Social media image deepfake detection, localization
+and explanation with large multimodal model,” inProceedings of the
+Computer Vision and Pattern Recognition Conference, 2025, pp. 28 831–
+28 841.
+[30] Z. Yu, J. Ni, Y . Lin, H. Deng, and B. Li, “Diffforensics: Leveraging
+diffusion prior to image forgery detection and localization,” in2024
+IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), 2024, pp. 12 765–12 774.
+[31] J. Zhang, J. Huang, S. Jin, and S. Lu, “Vision-language models for vision
+tasks: A survey,”IEEE Transactions on Pattern Analysis and Machine
+Intelligence, vol. 46, no. 8, pp. 5625–5644, 2024.
+[32] Y . Zhao, T. Pang, C. Du, X. Yang, C. Li, N.-M. M. Cheung, and M. Lin,
+“On evaluating adversarial robustness of large vision-language models,”
+inProceedings of the Advances in Neural Information Processing
+Systems (NIPS), vol. 36, 2024.
+[33] T. Yu, Z. Lu, X. Jin, Z. Chen, and X. Wang, “Task residual for tuning
+vision-language models,” inProceedings of the IEEE Conference on
+Computer Vision and Pattern Recognition (CVPR), 2023, pp. 10 899–
+10 909.
+[34] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal,
+G. Sastry, A. Askell, P. Mishkin, J. Clarket al., “Learning transferable
+visual models from natural language supervision,” inProceedings of the
+International Conference on Machine Learning (ICML). PMLR, 2021,
+pp. 8748–8763.
+[35] K. Zhou, J. Yang, C. C. Loy, and Z. Liu, “Learning to prompt for vision-
+language models,”International Journal of Computer Vision, vol. 130,
+no. 9, pp. 2337–2348, 2022.
+[36] Y . Gao, J. Liu, Z. Xu, T. Wu, E. Zhang, K. Li, J. Yang, W. Liu, and
+X. Sun, “SoftClip: Softer cross-modal alignment makes clip stronger,” in
+Proceedings of the AAAI Conference on Artificial Intelligence, vol. 38,
+no. 3, 2024, pp. 1860–1868.
+[37] A. Liu, S. Xue, J. Gan, J. Wan, Y . Liang, J. Deng, S. Escalera, and
+Z. Lei, “CFPL-FAS: Class free prompt learning for generalizable face
+anti-spoofing,” inProceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR), 2024, pp. 222–232.
+[38] C. Tan, R. Tao, H. Liu, G. Gu, B. Wu, Y . Zhao, and Y . Wei, “C2p-clip:
+Injecting category common prompt in clip to enhance generalization in
+deepfake detection,” inProceedings of the AAAI Conference on Artificial
+Intelligence, vol. 39, no. 7, 2025, pp. 7184–7192.
+[39] C. Deng, Q. Wu, Q. Wu, F. Hu, F. Lyu, and M. Tan, “ Visual Grounding
+Via Accumulated Attention ,”IEEE Transactions on Pattern Analysis &
+Machine Intelligence, vol. 44, no. 03, pp. 1670–1684, Mar. 2022.
+[40] X. Song, X. Guo, J. Zhang, Q. Li, L. Bai, X. Liu, G. Zhai, and X. Liu,
+“On learning multi-modal forgery representation for diffusion generated
+video detection,”Advances in Neural Information Processing Systems,
+vol. 37, pp. 122 054–122 077, 2024.
+[41] X. Guo, X. Song, Y . Zhang, X. Liu, and X. Liu, “Rethinking vision-
+language model in face forensics: Multi-modal interpretable forged
+face detector,” inProceedings of the Computer Vision and Pattern
+Recognition Conference, 2025, pp. 105–116.
+[42] Y . Zhang, Z. Yu, T. Wang, X. Huang, L. Shen, Z. Gao, and J. Ren,
+“GenFace: A large-scale fine-grained face forgery benchmark and cross
+appearance-edge learning,”IEEE Transactions on Information Forensics
+and Security, vol. 19, pp. 8559–8572, 2024.
+[43] Y . Luo, Y . Zhang, J. Yan, and W. Liu, “Generalizing face forgery
+detection with high-frequency features,” inProceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR), 2021,
+pp. 16 312–16 321.
+[44] O. Ronneberger, P. Fischer, and T. Brox, “U-Net: Convolutional net-
+works for biomedical image segmentation,” inMedical Image Comput-
+
+=== PAGE 18 ===
+JOURNAL OF LATEX CLASS FILES, VOL. 18, NO. 9, SEPTEMBER 2020 18
+ing and Computer-Assisted Intervention (MICCAI), N. Navab, J. Horneg-
+ger, W. M. Wells, and A. F. Frangi, Eds. Cham: Springer International
+Publishing, 2015, pp. 234–241.
+[45] H. Liu, Z. Tan, C. Tan, Y . Wei, J. Wang, and Y . Zhao, “Forgery-aware
+adaptive transformer for generalizable synthetic image detection,” in
+Proceedings of the IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), June 2024, pp. 10 770–10 780.
+[46] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-
+resolution image synthesis with latent diffusion models,” inProceedings
+of the IEEE Conference on Computer Vision and Pattern Recogni-
+tion(CVPR), 2022, pp. 10 684–10 695.
+[47] Z. Huang, K. C. Chan, Y . Jiang, and Z. Liu, “Collaborative diffusion for
+multi-modal face generation and editing,” inProceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR), 2023,
+pp. 6080–6090.
+[48] K. Preechakul, N. Chatthee, S. Wizadwongsa, and S. Suwajanakorn,
+“Diffusion Autoencoders: Toward a meaningful and decodable repre-
+sentation,” inProceedings of the IEEE Conference on Computer Vision
+and Pattern Recognition (CVPR), 2022.
+[49] X. Yao, A. Newson, Y . Gousseau, and P. Hellier, “A latent transformer
+for disentangled face editing in images and videos,” inProceedings of
+the IEEE International Conference on Computer Vision (ICCV), 2021,
+pp. 13 769–13 778.
+[50] W. Huang, S. Tu, and L. Xu, “Ia-FaceS: A bidirectional method for
+semantic face editing,”Neural Networks, vol. 158, pp. 272–292, 2023.
+[51] Y . Xu, B. Deng, J. Wang, Y . Jing, J. Pan, and S. He, “High-resolution
+face swapping via latent semantics disentanglement,” inProceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), 2022, pp. 7632–7641.
+[52] Q. Li, W. Wang, C. Xu, and Z. Sun, “Learning disentangled rep-
+resentation for one-shot progressive face swapping,”arXiv preprint
+arXiv:2203.12985, 2022.
+[53] A. R ¨ossler, D. Cozzolino, L. Verdoliva, C. Riess, J. Thies, and M. Niess-
+ner, “FaceForensics++: Learning to detect manipulated facial images,” in
+Proceedings of the IEEE International Conference on Computer Vision
+(ICCV), 2019, pp. 1–11.
+[54] B. Dolhansky, J. Bitton, B. Pflaum, J. Lu, R. Howes, M. Wang, and
+C. Canton-Ferrer, “The deepfake detection challenge dataset,”arXiv
+preprint arXiv:2006.07397, 2020.
+[55] Y . Li, X. Yang, P. Sun, H. Qi, and S. Lyu, “Celeb-DF: A large-scale
+challenging dataset for deepfake forensics,” inProceedings of the IEEE
+Conference on Computer Vision and Pattern Recognition (CVPR), June
+2020, pp. 3204–3213.
+[56] L. Jiang, R. Li, W. Wu, C. Qian, and C. C. Loy, “DeeperForensics-1.0: A
+large-scale dataset for real-world face forgery detection,” inProceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), June 2020, pp. 2886–2895.
+[57] J. Cao, C. Ma, T. Yao, S. Chen, S. Ding, and X. Yang, “End-to-
+end reconstruction-classification learning for face forgery detection,” in
+Proceedings of the IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), 2022, pp. 4113–4122.
+[58] D. A. Coccomini, N. Messina, C. Gennaro, and F. Falchi, “Combining
+efficientnet and vision transformers for video deepfake detection,” in
+Proceedings of the International Conference on Image Analysis and
+Processing (IAP). Springer, 2022, pp. 219–229.
+[59] J. Tian, P. Chen, C. Yu, X. Fu, X. Wang, J. Dai, and J. Han, “Learning
+to discover forgery cues for face forgery detection,”IEEE Transactions
+on Information Forensics and Security, vol. 19, pp. 3814–3828, 2024.
+[60] W. Zhuang, Q. Chu, Z. Tan, Q. Liu, H. Yuan, C. Miao, Z. Luo, and
+N. Yu, “UIA-ViT: Unsupervised inconsistency-aware method based on
+vision transformer for face forgery detection,” inProceedings of the
+European Conference on Computer Vision (ECCV). Springer, 2022,
+pp. 391–407.
+[61] B. Yu, W. Li, X. Li, J. Zhou, and J. Lu, “Uncertainty-aware hierarchical
+labeling for face forgery detection,”Pattern Recognition, vol. 153, p.
+110526, 2024.
+[62] W. Guan, W. Wang, J. Dong, and B. Peng, “Improving generalization
+of deepfake detectors by imposing gradient regularization,”IEEE Trans-
+actions on Information Forensics and Security, vol. 19, pp. 5345–5356,
+2024.
+Yaning Zhangreceived the double bachelor’s de-
+gree in Internet of Things Engineering and English
+and the M.S. degree in Computer Applied Technol-
+ogy from Qilu University of Technology (Shandong
+Academy of Sciences), Jinan, China, in 2020 and
+2023, respectively, where she is currently pursuing
+the Ph.D. degree. Her research interests include
+computer vision, artificial intelligence, multimedia
+forensics, and face forgery detection.
+Tianyi Wang(Member, IEEE) received the dou-
+ble major B.S. degree in Computer Science and
+Applied and Computational Mathematical Sciences
+from the University of Washington, Seattle, USA,
+in 2018. After that, he received the Ph.D. degree
+in Computer Science, under the supervision of Dr.
+Kam Pui Chow, from the University of Hong Kong,
+Hong Kong, in 2023. He is currently a Research
+Fellow at School of Computing, National University
+of Singapore, Singapore. His major research interests
+include multimedia forensics, face forgery detection,
+misinformation detection, generative artificial intelligence, and computer
+vision.
+Zan Gao(Senior Member, IEEE) received his
+Ph.D degree from Beijing University of Posts and
+Telecommunications in 2011. He is currently a full
+Professor with the Shandong Artificial Intelligence
+Institute, Qilu University of Technology (Shandong
+Academy of Sciences). From Sep. 2009 to Sep.
+2010, he worded in the School of Computer Science,
+Carnegie Mellon University, USA. From July 2016
+to Jan 2017, he worked in the School of Computing
+of National University of Singapore. His research
+interests include artificial intelligence, multimedia
+analysis and retrieval, and machine learning. He has authored over 100
+scientific papers in international conferences and journals including TPAMI,
+TIP, TNNLS, TMM, TCYBE, CVPR, ACM MM, WWW, SIGIR and AAAI.
+Yibo Zhaois pursuing his PhD degree in the School
+of Computer Science and Technology, Tianjin Uni-
+versity of Technology. He received his Bachelor’s
+degree from the Tianjin University of Technology
+in 2018. His research interests include multimedia
+analysis and retrieval, machine learning.
+Chunjie Mareceived the Ph.D. degree in Elec-
+tronic Science and Technology from the Beijing
+University of Technology in 2023. He is currently
+a Research Assistant with the Shandong Artificial
+Intelligence Institute, Qilu University of Technology.
+His research interests include computer vision, X-ray
+image prohibited object detection, tamper detection,
+etc.
+Meng Wang(Fellow, IEEE) received the BE and
+PhD degrees in the Special Class for the Gifted
+Young and the Department of Electronic Engineer-
+ing and Information Science from the University of
+Science and Technology of China (USTC), Hefei,
+China, respectively. He is a professor at the Hefei
+University of Technology, China. His current re-
+search interests include multimedia content anal-
+ysis, search, mining, recommendation, and large-
+scale computing. He received the best paper awards
+successively from the 17th and 18th ACM Inter-
+national Conference on Multimedia, the best paper award from the 16th
+International Multimedia Modeling Conference, the best paper award from the
+4th International Conference on Internet Multimedia Computing and Service,
+and the best demo award from the 20th ACM International Conference on
+Multimedia.
+

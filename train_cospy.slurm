@@ -47,12 +47,12 @@ echo "Thư mục làm việc: $(pwd)"
 echo "Thời gian bắt đầu: $(date)"
 echo "============================================================"
 
-# 5. Chạy huấn luyện MFVLR (GPU L40 44GB: batch-size 32, AMP FP16, 4 workers)
+# 5. Chạy huấn luyện MFVLR (GPU L40 44GB: batch-size 32, BFloat16, 4 workers)
 python train.py \
     --config configs/mfvlr.yaml \
     --epochs 30 \
     --batch-size 32 \
-    --amp \
+    --precision bf16 \
     --num-workers 4 \
     --device cuda
 
