@@ -54,10 +54,10 @@ cmc:
 mask:
   gt_threshold: 0.1
 dataset:
-  root: "data/SEED_balanced"
-  train_manifest: "data/SEED_balanced/train_manifest.jsonl"
-  val_manifest: "data/SEED_balanced/val_manifest.jsonl"
-  test_manifest: "data/SEED_balanced/test_manifest.jsonl"
+  root: data/SEED_balanced
+  train_manifest: data/SEED_balanced/train_manifest.jsonl
+  val_manifest: data/SEED_balanced/val_manifest.jsonl
+  test_manifest: data/SEED_balanced/test_manifest.jsonl
   real_class_index: 0
   fake_class_index: 1
 training:

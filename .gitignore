@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Caches & Logs
+.pytest_cache/
+logs/
+*.log
+*.out
+*.err
+
+# Large Checkpoints & Pretrained Weights
+checkpoints/*.pt
+checkpoints/*.ckpt
+checkpoints/*.pth
+checkpoints/*.pkl
+checkpoints/*.bin
+checkpoints/AM/
+checkpoints/EFS/
+checkpoints/FS/
+!checkpoints/README*.md
+
+# Datasets & Generated Images
+data/
+datasets/DeepFakeFace/
+MFVLR_Dataset/
+GenFace_Reproduced/preproduction_500/
+GenFace_Reproduced/production/smoke_test/
+output/
+
+# External cloned repos
+external/

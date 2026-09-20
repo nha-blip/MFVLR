@@ -1,0 +1,49 @@
+# ==============================================================================
+# MFVLR / GenFace-Reproduced: Pristine Source Datasets Registry
+# Documenting required pristine datasets on the remote SLURM server.
+# All paths are relative to $DATA_ROOT (configured in server.env).
+# ==============================================================================
+
+version: "1.0.0"
+
+datasets:
+  CelebA:
+    name: "CelebA"
+    description: "Large-scale CelebFaces Attributes Dataset"
+    server_relative_path: "CelebA/images"
+    expected_image_format: "JPG"
+    native_resolution: "178x218 / 256x256 aligned"
+    used_by:
+      - "FaceSwapper"
+    required_sample_count: 30000
+    id_pattern: "{idx:06d}.jpg"
+    notes: "Requires at least 30,000 pristine aligned face images for the 30k bidirectional swap pairing manifest."
+
+  CelebA-HQ:
+    name: "CelebA-HQ"
+    description: "High-Quality CelebA Dataset"
+    server_relative_path: "CelebA-HQ/images"
+    expected_image_format: "PNG / JPG"
+    native_resolution: "256x256 / 1024x1024"
+    used_by:
+      - "IAFaces"
+      - "LatTrans"
+      - "DDPM"
+    required_sample_count: 30000
+    id_pattern: "{idx:05d}.jpg"
+    notes: "Provides high-resolution source faces for attribute manipulation."
+
+  FFHQ:
+    name: "FFHQ"
+    description: "Flickr-Faces-HQ Dataset"
+    server_relative_path: "FFHQ/images"
+    expected_image_format: "PNG"
+    native_resolution: "1024x1024"
+    used_by:
+      - "StyleGAN3"
+      - "LatDiff"
+      - "CollDiff"
+      - "DiffAE"
+    required_sample_count: 70000
+    id_pattern: "{idx:05d}.png"
+    notes: "High-quality aligned pristine face dataset for diffusion/GAN unconditioned synthesis and DiffAE inversion."

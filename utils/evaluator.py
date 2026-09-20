@@ -50,8 +50,9 @@ def evaluate(
 
     all_y_true: List[int] = []
     all_y_probs: List[float] = []
-    all_mask_true: List[np.ndarray] = []
-    all_mask_pred: List[np.ndarray] = []
+    total_intersections = [0, 0]
+    total_unions = [0, 0]
+    has_masks = False
 
     pbar = tqdm(dataloader, desc="Evaluating", dynamic_ncols=True, leave=False)
     with torch.no_grad():
@@ -74,12 +75,16 @@ def evaluate(
                     class_target = torch.argmax(class_target, dim=-1)
                 all_y_true.extend(class_target.cpu().numpy().tolist())
 
-            # 2. Predicted masks via argmax over 2-class localization logits
-            pred_masks = out.predict_mask().cpu().numpy()
-            all_mask_pred.append(pred_masks)
-
+            # 2. Predicted masks via argmax over 2-class localization logits (streaming IoU accumulation)
             if mask_target is not None:
-                all_mask_true.append(mask_target.cpu().numpy())
+                has_masks = True
+                pred_masks = out.predict_mask().cpu().numpy()  # [B, H, W]
+                true_masks = (mask_target.cpu().numpy() > 0.5).astype(np.uint8)  # [B, H, W]
+                for c in range(2):
+                    true_c = (true_masks == c)
+                    pred_c = (pred_masks == c)
+                    total_intersections[c] += int(np.logical_and(true_c, pred_c).sum())
+                    total_unions[c] += int(np.logical_or(true_c, pred_c).sum())
 
     results: Dict[str, float] = {}
 
@@ -93,18 +98,18 @@ def evaluate(
         results["acc"] = cls_metrics["acc"]
         results["auc"] = cls_metrics["auc"]
 
-    # Compute localization metrics (mIoU)
-    if len(all_mask_true) > 0 and len(all_mask_pred) > 0:
-        stacked_mask_true = np.concatenate(all_mask_true, axis=0)
-        stacked_mask_pred = np.concatenate(all_mask_pred, axis=0)
-        loc_metrics = compute_localization_metrics(
-            mask_true=stacked_mask_true,
-            mask_pred=stacked_mask_pred,
-            num_classes=2,
-        )
-        results["miou"] = loc_metrics["miou"]
-        for k, v in loc_metrics.items():
-            if k != "miou":
-                results[k] = v
+    # Compute localization metrics (mIoU) from streaming accumulation
+    if has_masks:
+        eps = 1e-7
+        ious = []
+        for c in range(2):
+            if total_unions[c] == 0:
+                iou_c = 1.0
+            else:
+                iou_c = (total_intersections[c] + eps) / (total_unions[c] + eps)
+            ious.append(float(iou_c))
+        results["miou"] = float(np.mean(ious)) * 100.0
+        results["iou_class_0"] = ious[0] * 100.0
+        results["iou_class_1"] = ious[1] * 100.0
 
     return results

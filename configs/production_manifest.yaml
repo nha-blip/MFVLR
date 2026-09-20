@@ -1,0 +1,267 @@
+# ==============================================================================
+# MFVLR / GenFace-Reproduced: Master Production Dataset Manifest
+# Target Pool: 375,000 Fake Images across 8 Verified OFFICIAL_READY Generators
+# Split Policy: All samples initially set to split = UNASSIGNED
+# ==============================================================================
+
+version: "1.0.0"
+date: "2026-09-20"
+total_target_samples: 375000
+default_split: "UNASSIGNED"
+final_resolution: "224x224"
+mask_format: "PNG uint8 {0, 255}, BT.601 luminance diff > 0.1, no morphology"
+
+blocked_generators:
+  - name: "DiffFace"
+    category: "FS"
+    architecture: "Diffusion"
+    status: "BLOCKED / MANUAL_DOWNLOAD_REQUIRED"
+    reason: "Official checkpoint download URL inaccessible/requires manual authentication"
+    substitution_policy: "STRICTLY FORBIDDEN (No mock, surrogate, or synthetic replacement)"
+  - name: "FSLSD"
+    category: "FS"
+    architecture: "GAN"
+    status: "BLOCKED / MANUAL_DOWNLOAD_REQUIRED"
+    reason: "Official checkpoint weights unavailable without manual author retrieval"
+    substitution_policy: "STRICTLY FORBIDDEN (No mock, surrogate, or synthetic replacement)"
+
+generators:
+  # ----------------------------------------------------------------------------
+  # Entire Face Synthesis (EFS)
+  # ----------------------------------------------------------------------------
+  DDPM:
+    category: "EFS"
+    architecture: "Diffusion"
+    target_count: 50000
+    official_repo: "https://huggingface.co/google/ddpm-celebahq-256"
+    git_commit: "cd5c944777ea2668051904ead6cc120739b86c4d"
+    checkpoint: "google/ddpm-celebahq-256"
+    checkpoint_sha256: "6b81d77cb077d018788417c88b4ddc89a7444c1dcae9e0350a4ec9ec51787c8d"
+    source_domain: "CelebA-HQ"
+    native_resolution: "256x256"
+    final_resolution: "224x224"
+    sampling:
+      scheduler: "DDIM"
+      timesteps: 50
+      eta: 0.0
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "all_255 (ratio = 1.0)"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "INFERRED"
+      source_domain: "VERIFIED"
+      sampling: "INFERRED"
+      native_resolution: "VERIFIED"
+      mask_policy: "VERIFIED"
+    notes: "Uses Hugging Face official google/ddpm-celebahq-256 checkpoint with DDIM 50-step acceleration for scalable SLURM production."
+
+  LatDiff:
+    category: "EFS"
+    architecture: "Diffusion"
+    target_count: 60000
+    official_repo: "https://github.com/CompVis/latent-diffusion"
+    git_commit: "a506df5756472e2ebaf9078affdde2c4f1502cd4"
+    checkpoint: "checkpoints/EFS/LatDiff/ffhq_ldm_kl_f4.ckpt"
+    checkpoint_sha256: "4224fbe29fa9be7e6f83ec55ee988cf2332616f73587e974e370a256df2e6dc3"
+    source_domain: "FFHQ"
+    native_resolution: "256x256"
+    final_resolution: "224x224"
+    sampling:
+      scheduler: "DDIM"
+      timesteps: 50
+      eta: 0.0
+      downsampling_factor: 4
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "all_255 (ratio = 1.0)"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      source_domain: "VERIFIED"
+      sampling: "VERIFIED"
+      native_resolution: "VERIFIED"
+      mask_policy: "VERIFIED"
+    notes: "Official LDM-KL-f4 trained on FFHQ 256x256."
+
+  CollDiff:
+    category: "EFS"
+    architecture: "Diffusion"
+    target_count: 50000
+    official_repo: "https://github.com/ziqihuangg/Collaborative-Diffusion"
+    git_commit: "a4a0d1f13bc83f2315cb885ef1095bb498c5984c"
+    checkpoint: "checkpoints/EFS/CollDiff/colldiff_ffhq.ckpt"
+    checkpoint_sha256: "3a4f89d38c64119d67b2d56e7e59c00ab2f5a6b0c2049e49a8fe10ca1c15f9b4"
+    source_domain: "FFHQ"
+    native_resolution: "256x256"
+    final_resolution: "224x224"
+    sampling:
+      scheduler: "DDIM"
+      timesteps: 50
+      dynamic_cfg: true
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "all_255 (ratio = 1.0)"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      source_domain: "VERIFIED"
+      sampling: "VERIFIED"
+      native_resolution: "VERIFIED"
+      mask_policy: "VERIFIED"
+    notes: "Official Collaborative Diffusion synthesis network on FFHQ."
+
+  StyleGAN3:
+    category: "EFS"
+    architecture: "GAN"
+    target_count: 50000
+    official_repo: "https://github.com/NVlabs/stylegan3"
+    git_commit: "c233a919a6faee6e36a316ddd4eddababad1adf9"
+    checkpoint: "checkpoints/EFS/StyleGAN3/stylegan3-r-ffhq-1024x1024.pkl"
+    checkpoint_sha256: "a5879a7384ff82173ea51f930e386928e44f80077c449c394fcc7ae9cf71bc8f"
+    source_domain: "FFHQ"
+    native_resolution: "1024x1024"
+    final_resolution: "224x224"
+    sampling:
+      truncation_psi: 0.7
+      noise_mode: "const"
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "all_255 (ratio = 1.0)"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      source_domain: "VERIFIED"
+      sampling: "VERIFIED"
+      native_resolution: "VERIFIED"
+      mask_policy: "VERIFIED"
+    notes: "Official StyleGAN3-R model trained on FFHQ at 1024x1024."
+
+  # ----------------------------------------------------------------------------
+  # Attribute Manipulation (AM)
+  # ----------------------------------------------------------------------------
+  DiffAE:
+    category: "AM"
+    architecture: "Diffusion"
+    target_count: 70000
+    official_repo: "https://github.com/phizaz/diffae"
+    git_commit: "00c57d3f626f28bf9ed8aff58d90baab25de3af4"
+    checkpoint: "checkpoints/AM/DiffAE/ffhq1024_diffae.ckpt"
+    checkpoint_sha256: "9746fb9ae9c4d9ad67f8921e51b3117fe4ee06b23b3fd8959d571871a37c4db6"
+    classifier_checkpoint: "checkpoints/AM/DiffAE/celeba_cls.ckpt"
+    classifier_sha256: "b0b2e3e566cf2c78e38d72e70e9aeb1777085c88b6932a392ddb86653e163b27"
+    source_domain: "FFHQ"
+    native_resolution: "1024x1024"
+    final_resolution: "224x224"
+    sampling:
+      inversion_timesteps: 250
+      render_timesteps: 100
+      attribute: "Smiling (CelebA attr 31)"
+      attribute_strength_range: [-2.5, 2.5]
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "abs(fake - source) > 0.1 BT.601, uint8 {0, 255}"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      source_domain: "VERIFIED"
+      sampling: "VERIFIED"
+      attribute: "INFERRED"
+      mask_policy: "VERIFIED"
+    notes: "Pre-inversion caching of pristine source faces is preserved; validated official DiffAE pipeline."
+
+  LatTrans:
+    category: "AM"
+    architecture: "GAN"
+    target_count: 60000
+    official_repo: "https://github.com/InterDigitalInc/latent-transformer"
+    git_commit: "20089489ff2d69171f977d4ab316325f146ddd20"
+    checkpoint: "external/latent-transformer/pixel2style2pixel/pretrained_models/psp_ffhq_encode.pt"
+    checkpoint_sha256: "f786ac5cf18fcdbc5c57c9f3f12cbedca69381fbdf5694dd132294e3133749d7"
+    tnet_dir: "external/latent-transformer/logs/001"
+    source_domain: "CelebA-HQ / FFHQ"
+    native_resolution: "1024x1024"
+    final_resolution: "224x224"
+    sampling:
+      encoder: "pSp (pixel2style2pixel)"
+      attribute_suite: "40 CelebA T-Net models"
+      quota_per_attribute: 1500  # 40 * 1500 = 60,000
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "abs(fake - source) > 0.1 BT.601, uint8 {0, 255}"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      tnet_suite: "VERIFIED"
+      source_domain: "VERIFIED"
+      quota_policy: "INFERRED"
+      mask_policy: "VERIFIED"
+    notes: "Uniform 1,500 quota per attribute across all 40 trained T-Nets locks deterministic multi-attribute coverage."
+
+  IAFaces:
+    category: "AM"
+    architecture: "GAN"
+    target_count: 5000
+    official_repo: "https://github.com/CMACH508/IA-FaceS.git"
+    git_commit: "8fba259727b32f32aafe6542fd0f3f55d89606a4"
+    checkpoint: "checkpoints/AM/IAFaces/iafaces-celebahq-256.pth"
+    checkpoint_sha256: "b08552b6c1adcc372b665e005cf1a4fa3a50112ba747391060e268db41b6cab2"
+    source_domain: "CelebA-HQ"
+    native_resolution: "256x256"
+    final_resolution: "224x224"
+    sampling:
+      components:
+        - name: "eyes"
+          indices: [0, 1]
+          quota: 1667
+        - name: "mouth"
+          indices: [3]
+          quota: 1667
+        - name: "nose"
+          indices: [2]
+          quota: 1666
+    seed_policy: "deterministic (seed = sample_idx)"
+    mask_policy: "abs(fake - source) > 0.1 BT.601, uint8 {0, 255}"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      source_domain: "VERIFIED"
+      component_nodes: "VERIFIED"
+      quota_policy: "INFERRED"
+      mask_policy: "VERIFIED"
+    notes: "Exact component swap across eyes, mouth, and nose with locked quota."
+
+  # ----------------------------------------------------------------------------
+  # Face Swapping (FS)
+  # ----------------------------------------------------------------------------
+  FaceSwapper:
+    category: "FS"
+    architecture: "GAN"
+    target_count: 30000
+    official_repo: "https://github.com/liqi-casia/FaceSwapper"
+    git_commit: "fd999e0396c8b589c5a735bacd7e208918edc0c0"
+    checkpoint: "external/FaceSwapper/pretrained_checkpoints/faceswapper.ckpt"
+    checkpoint_sha256: "74d781083057091ab8e74b9e86ce2c84a5b66c72dd1f218290e0aeaa0d87b4ee"
+    arcface_checkpoint: "external/FaceSwapper/pretrained_checkpoints/model_ir_se50.pth"
+    wing_checkpoint: "external/FaceSwapper/pretrained_checkpoints/wing.ckpt"
+    source_domain: "CelebA"
+    native_resolution: "256x256"
+    final_resolution: "224x224"
+    pairing:
+      protocol: "CelebA bidirectional pairing"
+      pristine_pool_size: 30000
+      partition_a_size: 15000
+      partition_b_size: 15000
+      rule: "A[i] identity -> B[i] context (mask ref B[i]), B[i] identity -> A[i] context (mask ref A[i])"
+      total_pairs: 30000
+    seed_policy: "deterministic (seed = pair_idx)"
+    mask_policy: "abs(fake - target_context) > 0.1 BT.601, uint8 {0, 255}"
+    provenance:
+      official_repo: "VERIFIED"
+      architecture: "VERIFIED"
+      checkpoint: "VERIFIED"
+      source_domain: "VERIFIED"
+      pairing_protocol: "INFERRED"
+      mask_policy: "VERIFIED"
+    notes: "Switched from FF++ validation test to CelebA bidirectional pairing (15k x 2 = 30k swaps). Mask reference is strictly the target context face."

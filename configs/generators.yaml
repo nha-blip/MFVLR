@@ -1,0 +1,73 @@
+# Generator configuration for MFVLR / GenFace reproduction dataset
+# Sourced from GenFace benchmark and MFVLR paper (arXiv:2605.10071)
+# Category: EFS (Entire Face Synthesis), AM (Attribute Manipulation), FS (Face Swapping), REAL
+# Architecture: Diffusion, GAN, REAL
+
+Real:
+  forgery_type: REAL
+  architecture: REAL
+  needs_source: false
+  description: "Pristine real face images"
+
+# --- Entire Face Synthesis (EFS) ---
+DDPM:
+  forgery_type: EFS
+  architecture: Diffusion
+  needs_source: false
+  description: "Denoising Diffusion Probabilistic Models"
+
+LatDiff:
+  forgery_type: EFS
+  architecture: Diffusion
+  needs_source: false
+  description: "High-Resolution Image Synthesis with Latent Diffusion Models"
+
+CollDiff:
+  forgery_type: EFS
+  architecture: Diffusion
+  needs_source: false
+  description: "Collaborative Diffusion for Multi-Modal Face Generation and Editing"
+
+StyleGAN3:
+  forgery_type: EFS
+  architecture: GAN
+  needs_source: false
+  description: "Alias-Free Generative Adversarial Networks (StyleGAN3)"
+
+# --- Attribute Manipulation (AM) ---
+DiffAE:
+  forgery_type: AM
+  architecture: Diffusion
+  needs_source: true
+  description: "Diffusion Autoencoders: Toward a Meaningful Compact Latent Space"
+
+LatTrans:
+  forgery_type: AM
+  architecture: GAN
+  needs_source: true
+  description: "Latent Transformer for Face Attribute Editing"
+
+IAFaces:
+  forgery_type: AM
+  architecture: GAN
+  needs_source: true
+  description: "IA-FaceS: A Bidirectional Method for Semantic Face Editing"
+
+# --- Face Swapping (FS) ---
+FSLSD:
+  forgery_type: FS
+  architecture: GAN
+  needs_source: true
+  description: "High-Resolution Face Swapping via Latent Semantics Disentanglement"
+
+FaceSwapper:
+  forgery_type: FS
+  architecture: GAN
+  needs_source: true
+  description: "Learning Disentangled Representation for One-Shot Progressive Face Swapping"
+
+DiffFace:
+  forgery_type: FS
+  architecture: Diffusion
+  needs_source: true
+  description: "DiffFace: Diffusion-based Face Swapping via Identity-guided Conditioning"

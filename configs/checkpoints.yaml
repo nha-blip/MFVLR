@@ -1,0 +1,105 @@
+# ==============================================================================
+# MFVLR / GenFace-Reproduced: Checkpoint Registry for SLURM A100 Deployment
+# At server preflight, calculate SHA256 and compare against this file.
+# Missing checkpoint -> FAIL that generator.
+# SHA mismatch -> FAIL that generator.
+# Never silently use another checkpoint.
+# ==============================================================================
+
+version: "1.0.0"
+
+checkpoints:
+  StyleGAN3:
+    generator: "StyleGAN3"
+    category: "EFS"
+    architecture: "GAN"
+    server_path: "checkpoints/EFS/StyleGAN3/stylegan3-r-ffhq-1024x1024.pkl"
+    sha256: "a5879a7384ff82173ea51f930e386928e44f80077c449c394fcc7ae9cf71bc8f"
+    size_bytes: 381647466
+    size_human: "364 MB"
+    official_source: "https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-ffhq-1024x1024.pkl"
+    required: true
+
+  IAFaces:
+    generator: "IAFaces"
+    category: "AM"
+    architecture: "GAN"
+    server_path: "checkpoints/AM/IAFaces/iafaces-celebahq-256.pth"
+    sha256: "b08552b6c1adcc372b665e005cf1a4fa3a50112ba747391060e268db41b6cab2"
+    size_bytes: 351478147
+    size_human: "335 MB"
+    official_source: "https://github.com/CMACH508/IA-FaceS"
+    required: true
+
+  LatTrans:
+    generator: "LatTrans"
+    category: "AM"
+    architecture: "GAN"
+    server_path: "checkpoints/AM/LatTrans/psp_ffhq_encode.pt"
+    sha256: "f786ac5cf18fcdbc5c57c9f3f12cbedca69381fbdf5694dd132294e3133749d7"
+    size_bytes: 1221764669
+    size_human: "1.14 GB"
+    tnet_dir: "checkpoints/AM/LatTrans/tnet_logs_001"
+    tnet_models_count: 40
+    official_source: "https://github.com/InterDigitalInc/latent-transformer"
+    required: true
+
+  FaceSwapper:
+    generator: "FaceSwapper"
+    category: "FS"
+    architecture: "GAN"
+    server_path: "checkpoints/FS/FaceSwapper/faceswapper.ckpt"
+    sha256: "74d781083057091ab8e74b9e86ce2c84a5b66c72dd1f218290e0aeaa0d87b4ee"
+    size_bytes: 409941197
+    size_human: "391 MB"
+    arcface_path: "checkpoints/FS/FaceSwapper/model_ir_se50.pth"
+    arcface_sha256: "951aeaf8242a3cf134c4fcba13c9e378385bbd195972824ff433eb1f9429188d"
+    wing_path: "checkpoints/FS/FaceSwapper/wing.ckpt"
+    wing_sha256: "8e7a68e7d23d8c19eb9e7f82782e4e1a06a2879a95393c8378546522c09191e4"
+    official_source: "https://github.com/liqi-casia/FaceSwapper"
+    required: true
+
+  DDPM:
+    generator: "DDPM"
+    category: "EFS"
+    architecture: "Diffusion"
+    server_path: "checkpoints/EFS/DDPM/google_ddpm_celebahq_256"
+    sha256: "6b81d77cb077d018788417c88b4ddc89a7444c1dcae9e0350a4ec9ec51787c8d"
+    size_human: "455 MB"
+    official_source: "https://huggingface.co/google/ddpm-celebahq-256"
+    required: true
+
+  LatDiff:
+    generator: "LatDiff"
+    category: "EFS"
+    architecture: "Diffusion"
+    server_path: "checkpoints/EFS/LatDiff/ffhq_ldm_kl_f4.ckpt"
+    sha256: "4224fbe29fa9be7e6f83ec55ee988cf2332616f73587e974e370a256df2e6dc3"
+    size_bytes: 1475737525
+    size_human: "1.37 GB"
+    official_source: "https://ommer-lab.com/files/latent-diffusion/ffhq.zip"
+    required: true
+
+  CollDiff:
+    generator: "CollDiff"
+    category: "EFS"
+    architecture: "Diffusion"
+    server_path: "checkpoints/EFS/CollDiff/colldiff_ffhq.ckpt"
+    sha256: "3a4f89d38c64119d67b2d56e7e59c00ab2f5a6b0c2049e49a8fe10ca1c15f9b4"
+    size_bytes: 1475737525
+    size_human: "1.37 GB"
+    official_source: "https://github.com/ziqihuangg/Collaborative-Diffusion"
+    required: true
+
+  DiffAE:
+    generator: "DiffAE"
+    category: "AM"
+    architecture: "Diffusion"
+    server_path: "checkpoints/AM/DiffAE/ffhq1024_diffae.ckpt"
+    sha256: "9746fb9ae9c4d9ad67f8921e51b3117fe4ee06b23b3fd8959d571871a37c4db6"
+    size_bytes: 642825653
+    size_human: "613 MB"
+    classifier_path: "checkpoints/AM/DiffAE/celeba_cls.ckpt"
+    classifier_sha256: "b0b2e3e566cf2c78e38d72e70e9aeb1777085c88b6932a392ddb86653e163b27"
+    official_source: "https://github.com/phizaz/diffae"
+    required: true

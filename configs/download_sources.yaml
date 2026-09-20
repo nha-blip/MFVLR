@@ -1,0 +1,87 @@
+# Download Sources and Provenance for MFVLR Dataset Reproduction
+# Defines repositories, official checkpoints, pre-generated data sources, and download types.
+# Types: 'direct_url', 'manual_download_required', 'github_release', 'huggingface'
+
+sources:
+  DDPM:
+    category: EFS
+    architecture: Diffusion
+    repository: "https://github.com/paho/diffusion-models-pytorch"
+    checkpoint_url: "https://heibox.uni-heidelberg.de/f/6231d6044d034ba2847a/?dl=1"
+    filename: "celeba_ddpm.pt"
+    sha256: null
+    manual_instructions: "Official/community CelebA DDPM checkpoint."
+
+  LatDiff:
+    category: EFS
+    architecture: Diffusion
+    repository: "https://github.com/CompVis/latent-diffusion"
+    checkpoint_url: "https://ommer-lab.com/files/latent-diffusion/celebahq-ldm-vq-4.zip"
+    filename: "celebahq-ldm-vq-4.zip"
+    sha256: null
+    manual_instructions: "Download CelebA-HQ Latent Diffusion checkpoint from CompVis ommer-lab."
+
+  CollDiff:
+    category: EFS
+    architecture: Diffusion
+    repository: "https://github.com/ziqihuangg/Collaborative-Diffusion"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Checkpoint requires Google Drive / Baidu Netdisk access from repository https://github.com/ziqihuangg/Collaborative-Diffusion. Place downloaded weights in checkpoints/EFS/CollDiff/."
+
+  StyleGAN3:
+    category: EFS
+    architecture: GAN
+    repository: "https://github.com/NVlabs/stylegan3"
+    checkpoint_url: "https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/stylegan3-r-ffhq-1024x1024.pkl"
+    filename: "stylegan3-r-ffhq-1024x1024.pkl"
+    sha256: null
+    manual_instructions: "NVIDIA StyleGAN3 pre-trained on FFHQ."
+
+  DiffAE:
+    category: AM
+    architecture: Diffusion
+    repository: "https://github.com/phizaz/diffae"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download CelebA-HQ 256x256 DiffAE checkpoint from https://github.com/phizaz/diffae (Google Drive / OneDrive link). Place in checkpoints/AM/DiffAE/."
+
+  LatTrans:
+    category: AM
+    architecture: GAN
+    repository: "https://github.com/InterDigitalInc/latent-transformer"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download pretrained Latent Transformer model from https://github.com/InterDigitalInc/latent-transformer. Place in checkpoints/AM/LatTrans/."
+
+  IAFaces:
+    category: AM
+    architecture: GAN
+    repository: "IA-FaceS: A Bidirectional Method for Semantic Face Editing"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Consult official authors / repository for IA-FaceS weights. Place in checkpoints/AM/IAFaces/."
+
+  FSLSD:
+    category: FS
+    architecture: GAN
+    repository: "https://github.com/cnnlstm/FSLSD_HiRes"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: FSLSD weights available via Baidu/Google Drive link on repository https://github.com/cnnlstm/FSLSD_HiRes. Place in checkpoints/FS/FSLSD/."
+
+  FaceSwapper:
+    category: FS
+    architecture: GAN
+    repository: "https://github.com/liqi-casia/FaceSwapper"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download FaceSwapper weights from https://github.com/liqi-casia/FaceSwapper. Place in checkpoints/FS/FaceSwapper/."
+
+  DiffFace:
+    category: FS
+    architecture: Diffusion
+    repository: "https://github.com/hxngiee/DiffFace"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download DiffFace checkpoint from https://github.com/hxngiee/DiffFace. Place in checkpoints/FS/DiffFace/."
+
+  Real:
+    category: REAL
+    architecture: REAL
+    repository: "CelebA / FFHQ"
+    checkpoint_url: null
+    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Pristine real faces from CelebA or FFHQ datasets. Place 224x224 cropped face images into MFVLR_Dataset/images/real/."

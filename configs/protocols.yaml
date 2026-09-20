@@ -1,0 +1,63 @@
+# Dataset Splitting Protocols for MFVLR / GenFace Reproduction
+# Strictly config-driven: do not perform unverified random splits.
+
+protocols:
+  cross_generator:
+    description: "Evaluates cross-generator generalization on unseen generative models."
+    type: "generator_split"
+    train_generators:
+      - "DDPM"
+      - "StyleGAN3"
+      - "DiffAE"
+      - "LatTrans"
+      - "FSLSD"
+    val_generators:
+      - "CollDiff"
+    test_generators:
+      - "LatDiff"
+      - "IAFaces"
+      - "DiffFace"
+      - "FaceSwapper"
+    real_split_ratio:
+      train: 0.70
+      val: 0.10
+      test: 0.20
+
+  cross_architecture:
+    description: "Evaluates cross-architecture generalization (e.g. train on GAN, test on Diffusion)."
+    type: "architecture_split"
+    train_architectures:
+      - "GAN"
+    val_generators:
+      - "StyleGAN3"
+    test_architectures:
+      - "Diffusion"
+    real_split_ratio:
+      train: 0.70
+      val: 0.10
+      test: 0.20
+
+  cross_forgery:
+    description: "Evaluates cross-forgery generalization (e.g. train on EFS and AM, test on FS)."
+    type: "forgery_split"
+    train_forgery_types:
+      - "EFS"
+      - "AM"
+    val_generators:
+      - "CollDiff"
+      - "LatTrans"
+    test_forgery_types:
+      - "FS"
+    real_split_ratio:
+      train: 0.70
+      val: 0.10
+      test: 0.20
+
+  stratified_ratio:
+    description: "Stratified split preserving generator proportions with strict source-identity grouping to prevent data leakage."
+    type: "ratio_split"
+    ratios:
+      train: 0.70
+      val: 0.10
+      test: 0.20
+    enforce_source_grouping: true
