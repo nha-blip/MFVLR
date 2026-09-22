@@ -493,6 +493,7 @@ def main() -> int:
     parser.add_argument("--shard-id", type=int, default=0, help="Shard index for parallel cluster jobs")
     parser.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
     parser.add_argument("--start-index", type=int, default=None, help="Explicit start index (overrides sharding)")
+    parser.add_argument("--end-index", type=int, default=None, help="Explicit end index")
     parser.add_argument("--batch-size", type=int, default=4, help="Inference batch size for faster parallel generation (e.g. 4 or 8)")
     parser.add_argument("--fp16", action="store_true", default=True, help="Enable FP16 half-precision on CUDA for 2x speedup")
     parser.add_argument("--no-fp16", action="store_false", dest="fp16", help="Disable FP16")
