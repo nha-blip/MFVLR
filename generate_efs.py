@@ -343,21 +343,36 @@ def run_efs_generation(
         # Ensure colldiff_repo / pretrained has all checkpoints linked or copied
         pretrained_dir = colldiff_repo / "pretrained"
         pretrained_dir.mkdir(parents=True, exist_ok=True)
-        colldiff_ckpt_dir = Path("checkpoints/EFS/CollDiff")
-        if colldiff_ckpt_dir.exists():
-            for ckpt_file in colldiff_ckpt_dir.glob("*.ckpt"):
-                dst = pretrained_dir / ckpt_file.name
-                if not dst.exists() or dst.stat().st_size != ckpt_file.stat().st_size:
-                    import shutil
-                    try:
-                        shutil.copyfile(str(ckpt_file), str(dst))
-                    except Exception as ce:
-                        logger.debug("Could not copy %s to %s: %s", ckpt_file, dst, ce)
+        candidate_ckpt_dirs = [
+            Path("checkpoints/EFS/CollDiff"),
+            Path("/content/MFVLR/checkpoints/EFS/CollDiff"),
+            Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff"),
+            Path("/content/drive/MyDrive/GenFace/checkpoints/EFS/CollDiff"),
+        ]
+        for cdir in candidate_ckpt_dirs:
+            if cdir.exists():
+                for ckpt_file in cdir.glob("*.ckpt"):
+                    dst = pretrained_dir / ckpt_file.name
+                    if not dst.exists() or (not dst.is_symlink() and dst.stat().st_size != ckpt_file.stat().st_size):
+                        try:
+                            if dst.is_symlink() or dst.exists():
+                                dst.unlink()
+                            os.symlink(ckpt_file.resolve(), dst)
+                            logger.info("Symlinked CollDiff checkpoint: %s -> %s", ckpt_file.name, dst)
+                        except Exception:
+                            import shutil
+                            try:
+                                shutil.copyfile(str(ckpt_file), str(dst))
+                                logger.info("Copied CollDiff checkpoint: %s -> %s", ckpt_file.name, dst)
+                            except Exception as ce:
+                                logger.debug("Could not link/copy %s to %s: %s", ckpt_file, dst, ce)
 
         if checkpoint is None or not checkpoint.exists():
             candidates = [
                 Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
                 colldiff_repo / "pretrained" / "256_codiff_mask_text.ckpt",
+                Path("/content/MFVLR/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
             ]
             for c in candidates:
                 if c.exists():
