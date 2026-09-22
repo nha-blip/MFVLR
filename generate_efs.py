@@ -143,9 +143,15 @@ def run_efs_generation(
     if not mock and not dry_run and generator == "StyleGAN3":
         import time
         import psutil
-        import torch
-
         sg3_repo = Path(__file__).resolve().parent / "external" / "stylegan3"
+        if not (sg3_repo / "legacy.py").exists():
+            logger.info("StyleGAN3 repository not found at %s. Auto-cloning from NVlabs/stylegan3...", sg3_repo)
+            import subprocess
+            sg3_repo.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["git", "clone", "https://github.com/NVlabs/stylegan3.git", str(sg3_repo)],
+                check=True
+            )
         if str(sg3_repo) not in sys.path:
             sys.path.insert(0, str(sg3_repo))
 
