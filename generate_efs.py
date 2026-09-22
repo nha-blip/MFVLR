@@ -307,10 +307,23 @@ def run_efs_generation(
         if str(colldiff_repo) not in sys.path:
             sys.path.insert(0, str(colldiff_repo))
 
+        # Ensure colldiff_repo / pretrained has all checkpoints linked or copied
+        pretrained_dir = colldiff_repo / "pretrained"
+        pretrained_dir.mkdir(parents=True, exist_ok=True)
+        colldiff_ckpt_dir = Path("checkpoints/EFS/CollDiff")
+        if colldiff_ckpt_dir.exists():
+            for ckpt_file in colldiff_ckpt_dir.glob("*.ckpt"):
+                dst = pretrained_dir / ckpt_file.name
+                if not dst.exists() or dst.stat().st_size != ckpt_file.stat().st_size:
+                    import shutil
+                    try:
+                        shutil.copyfile(str(ckpt_file), str(dst))
+                    except Exception as ce:
+                        logger.debug("Could not copy %s to %s: %s", ckpt_file, dst, ce)
+
         if checkpoint is None or not checkpoint.exists():
             candidates = [
                 Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
-                Path("checkpoints/EFS/CollDiff/colldiff_ffhq.ckpt"),
                 colldiff_repo / "pretrained" / "256_codiff_mask_text.ckpt",
             ]
             for c in candidates:
@@ -319,6 +332,12 @@ def run_efs_generation(
                     break
 
         if checkpoint is None or not checkpoint.exists():
+            if not mock:
+                raise FileNotFoundError(
+                    "CollDiff checkpoint '256_codiff_mask_text.ckpt' not found in checkpoints/EFS/CollDiff/! "
+                    "Please download all official CollDiff checkpoints by running:\n"
+                    "  !python download_data.py --generator CollDiff"
+                )
             logger.warning("CollDiff checkpoint not found. Falling back to mock unless checkpoint is supplied.")
         else:
             logger.info("Initializing official CollDiff model from %s...", checkpoint)

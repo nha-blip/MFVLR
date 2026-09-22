@@ -25,10 +25,16 @@ sources:
     category: EFS
     architecture: Diffusion
     repository: "https://github.com/ziqihuangg/Collaborative-Diffusion"
-    checkpoint_url: null
-    gdrive_id: "1GjKAMp0hux9NtYZ9ig0Dq1eKZ5TrxS2v"
-    filename: "256_codiff_mask_text.ckpt"
-    manual_instructions: "Official Collaborative Diffusion 256 checkpoint."
+    files:
+      - filename: "256_codiff_mask_text.ckpt"
+        gdrive_id: "1GjKAMp0hux9NtYZ9ig0Dq1eKZ5TrxS2v"
+      - filename: "256_mask.ckpt"
+        gdrive_id: "1zEZYnpOX5KKqZrY-PUrIdI211G16Aigx"
+      - filename: "256_text.ckpt"
+        gdrive_id: "1VyWa5lKB0qd_CGjR5dryzb5KbOVXkg_e"
+      - filename: "256_vae.ckpt"
+        gdrive_id: "14_l07R7EneinaS6ShfWyldlDCblLjnim"
+    manual_instructions: "Official Collaborative Diffusion 256 checkpoints (codiff, mask, text, and vae models)."
 
   StyleGAN3:
     category: EFS
