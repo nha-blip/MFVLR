@@ -34,6 +34,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 import cv2
 import numpy as np
+import torch
 
 logging.basicConfig(
     level=logging.INFO,
