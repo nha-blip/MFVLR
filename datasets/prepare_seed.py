@@ -31,14 +31,14 @@ SEED_FILES = [
 
 def download_seed_dataset(dest_dir: Path, test_only: bool = False) -> None:
     """Download SEED_balanced dataset zip files directly with progress and resume support."""
-    files_to_download = ["SEED_subset_3.zip"] if test_only else SEED_FILES
-    print(f"Downloading {SEED_HF_REPO} archives ({'Test subset only: SEED_subset_3.zip' if test_only else 'All subsets'}) to {dest_dir}...")
+    files_to_download = ["SEED_subset_3.zip", "prediction.zip"] if test_only else SEED_FILES + ["prediction.zip"]
+    print(f"Downloading {SEED_HF_REPO} archives ({'Test subset only: SEED_subset_3.zip + prediction.zip' if test_only else 'All subsets'}) to {dest_dir}...")
     dest_dir.mkdir(parents=True, exist_ok=True)
     try:
         from huggingface_hub import hf_hub_download
         for fname in files_to_download:
             dest_file = dest_dir / fname
-            if dest_file.exists() and dest_file.stat().st_size > 10 * 1024 * 1024:
+            if dest_file.exists() and dest_file.stat().st_size > 10 * 1024:
                 print(f"[Skip] {fname} already downloaded ({dest_file.stat().st_size / (1024*1024):.1f} MB).")
                 continue
             print(f"\n--- Downloading {fname} ---")
@@ -56,8 +56,8 @@ def download_seed_dataset(dest_dir: Path, test_only: bool = False) -> None:
         sys.exit(1)
 
 
-def extract_zip(zip_path: Path, extract_to: Path) -> None:
-    """Extract a zip archive with progress bar."""
+def extract_zip(zip_path: Path, extract_to: Path, delete_zip: bool = False) -> None:
+    """Extract a zip archive with progress bar and optionally delete it to free disk space."""
     print(f"Extracting {zip_path.name} to {extract_to}...")
     extract_to.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
@@ -65,9 +65,15 @@ def extract_zip(zip_path: Path, extract_to: Path) -> None:
         for member in tqdm(members, desc=f"Extracting {zip_path.name}"):
             zip_ref.extract(member, extract_to)
     print(f"[OK] Extracted {zip_path.name}.")
+    if delete_zip:
+        try:
+            zip_path.unlink()
+            print(f"[Clean] Removed archive {zip_path.name} to free disk space.")
+        except Exception as e:
+            print(f"[Warning] Could not remove {zip_path.name}: {e}")
 
 
-def find_and_extract_all_zips(data_dir: Path, test_only: bool = False) -> None:
+def find_and_extract_all_zips(data_dir: Path, test_only: bool = False, delete_zip: bool = False) -> None:
     """Find and extract all SEED subset zip archives."""
     images_dir = data_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -75,7 +81,7 @@ def find_and_extract_all_zips(data_dir: Path, test_only: bool = False) -> None:
     # Search for zips in data_dir and subdirectories
     zip_files = list(data_dir.glob("*.zip")) + list(data_dir.glob("**/*.zip"))
     if test_only:
-        zip_files = [z for z in zip_files if "subset_3" in z.name.lower()]
+        zip_files = [z for z in zip_files if "subset_3" in z.name.lower() or "prediction" in z.name.lower()]
 
     unique_zips = {p.resolve(): p for p in zip_files}
 
@@ -85,11 +91,21 @@ def find_and_extract_all_zips(data_dir: Path, test_only: bool = False) -> None:
 
     for zip_path in unique_zips.values():
         folder_name = zip_path.stem
-        target_dir = images_dir / folder_name
+        if "prediction" in zip_path.name.lower():
+            target_dir = data_dir / "predictions"
+        else:
+            target_dir = images_dir / folder_name
+
         if target_dir.exists() and len(list(target_dir.glob("*"))) > 0:
             print(f"[Skip] {folder_name} already extracted.")
+            if delete_zip and zip_path.exists():
+                try:
+                    zip_path.unlink()
+                    print(f"[Clean] Removed archive {zip_path.name} to free disk space.")
+                except Exception:
+                    pass
         else:
-            extract_zip(zip_path, target_dir)
+            extract_zip(zip_path, target_dir, delete_zip=delete_zip)
 
 
 import ast
@@ -592,29 +608,57 @@ def update_config(config_path: Path, data_dir: Path) -> None:
 
 
 def build_test_only_manifests(data_dir: Path) -> List[Dict]:
-    """Parse test.txt (specifically from SEED_subset_3) and build test_manifest.jsonl."""
+    """Parse test set (specifically from SEED_subset_3) and build test_manifest.jsonl and test_balanced.jsonl."""
     images_dir = data_dir / "images"
     test_files = list(data_dir.glob("**/test.txt"))
     test_files = [tf for tf in test_files if tf.stat().st_size > 1024]
 
-    if not test_files:
-        print("[Warning] No non-empty test.txt found in data_dir. Falling back to parse_seed_samples...")
-        samples = parse_seed_samples(data_dir)
-        test_samples = samples
-    else:
+    # Check for prediction / ground-truth csv
+    pred_files = (
+        list(data_dir.glob("**/dim512_finetuned_test_predictions.csv"))
+        + list(data_dir.glob("**/*test_predictions*.csv"))
+        + list(data_dir.glob("**/*prediction*.csv"))
+    )
+
+    pred_label_map: Dict[str, list] = {}
+    if pred_files:
+        pred_csv = pred_files[0]
+        print(f"Loading test labels from prediction index: {pred_csv.relative_to(data_dir).as_posix()}")
+        try:
+            import csv
+            with open(pred_csv, "r", encoding="utf-8") as pf:
+                reader = csv.DictReader(pf)
+                for row in reader:
+                    f_path = row.get("file_path", "")
+                    l_str = row.get("label", "")
+                    if f_path and l_str:
+                        try:
+                            l_vec = ast.literal_eval(l_str)
+                            base_name = os.path.basename(f_path)
+                            pred_label_map[base_name] = l_vec
+                            pred_label_map[Path(base_name).stem] = l_vec
+                            pred_label_map[f_path] = l_vec
+                        except Exception:
+                            pass
+            print(f"Loaded {len(pred_label_map) // 3} ground truth labels for test images.")
+        except Exception as e:
+            print(f"[Warning] Could not load prediction CSV: {e}")
+
+    # Pre-index existing image files by basename
+    valid_exts = {".jpg", ".jpeg", ".png", ".webp"}
+    image_lookup = {}
+    for p in images_dir.rglob("*"):
+        if p.is_file() and p.suffix.lower() in valid_exts:
+            image_lookup[p.name] = p.relative_to(data_dir).as_posix()
+            image_lookup[p.stem] = p.relative_to(data_dir).as_posix()
+
+    print(f"Indexed {len(image_lookup) // 2} image files for test matching.")
+
+    test_samples: List[Dict] = []
+
+    if test_files:
         test_file = test_files[0]
         print(f"Found test index file: {test_file.relative_to(data_dir).as_posix()} ({test_file.stat().st_size / 1024:.1f} KB)")
-        test_samples = []
-
-        # Pre-index existing image files by basename
-        valid_exts = {".jpg", ".jpeg", ".png", ".webp"}
-        image_lookup = {}
-        for p in images_dir.rglob("*"):
-            if p.is_file() and p.suffix.lower() in valid_exts:
-                image_lookup[p.name] = p.relative_to(data_dir).as_posix()
-                image_lookup[p.stem] = p.relative_to(data_dir).as_posix()
-
-        print(f"Indexed {len(image_lookup) // 2} image files for test matching.")
 
         with open(test_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -634,21 +678,52 @@ def build_test_only_manifests(data_dir: Path) -> List[Dict]:
                     else:
                         continue
 
-                seq_len = rec.get("seq_len", 0) if rec.get("seq_len") is not None else 0
-                is_fake = (seq_len > 0)
+                # Check if ground truth label is in pred_label_map
+                vec = pred_label_map.get(fname, pred_label_map.get(stem, rec.get("sequence_vector")))
+                if vec is not None and all(isinstance(x, (int, float)) for x in vec):
+                    if all(int(x) == -1 for x in vec):
+                        # [-1, -1, -1, -1] is dummy placeholder if no pred map found
+                        is_fake = True
+                        seq_len = 1
+                    else:
+                        non_zeros = [x for x in vec if int(x) != 0]
+                        seq_len = len(non_zeros)
+                        is_fake = (seq_len > 0)
+                else:
+                    seq_len = rec.get("seq_len", 0) if rec.get("seq_len") is not None else 0
+                    is_fake = (seq_len > 0)
+
                 record = {
                     "image_path": rel_img_path,
                     "label": 1 if is_fake else 0,
                     "is_fake": is_fake,
                     "manipulation_type": "AM" if is_fake else "Real",
                     "seq_len": int(seq_len),
-                    "generator": "Diffusion" if is_fake else None,
-                    "family": "diffusion" if is_fake else None,
+                    "generator": "Diffusion" if is_fake else "Real",
+                    "family": "diffusion" if is_fake else "real",
                 }
                 if "prompt" in rec:
                     record["prompt"] = rec["prompt"]
                 test_samples.append(record)
+    else:
+        print("[Notice] No test.txt found. Building test samples directly from indexed images.")
+        for stem, rel_img_path in image_lookup.items():
+            vec = pred_label_map.get(stem)
+            if vec is not None:
+                non_zeros = [x for x in vec if int(x) != 0]
+                seq_len = len(non_zeros)
+                is_fake = (seq_len > 0)
+                test_samples.append({
+                    "image_path": rel_img_path,
+                    "label": 1 if is_fake else 0,
+                    "is_fake": is_fake,
+                    "manipulation_type": "AM" if is_fake else "Real",
+                    "seq_len": int(seq_len),
+                    "generator": "Diffusion" if is_fake else "Real",
+                    "family": "diffusion" if is_fake else "real",
+                })
 
+    # Save full test manifest
     test_manifest_path = data_dir / "test_manifest.jsonl"
     with open(test_manifest_path, "w", encoding="utf-8") as f:
         for r in test_samples:
@@ -656,7 +731,22 @@ def build_test_only_manifests(data_dir: Path) -> List[Dict]:
 
     n_r = sum(1 for r in test_samples if not r["is_fake"])
     n_f = sum(1 for r in test_samples if r["is_fake"])
-    print(f"Saved {test_manifest_path.name}: {len(test_samples)} samples ({n_r} Real, {n_f} Fake)")
+    print(f"[Manifest Saved] {test_manifest_path.name}: {len(test_samples)} samples ({n_r} Real, {n_f} Fake)")
+
+    # Save 1:1 balanced test manifest
+    if n_r > 0 and n_f > 0:
+        real_samples = [r for r in test_samples if not r["is_fake"]]
+        fake_samples = [r for r in test_samples if r["is_fake"]]
+        sample_k = min(len(real_samples), len(fake_samples))
+        balanced_test = random.sample(real_samples, sample_k) + random.sample(fake_samples, sample_k)
+        random.shuffle(balanced_test)
+
+        balanced_manifest_path = data_dir / "test_balanced.jsonl"
+        with open(balanced_manifest_path, "w", encoding="utf-8") as f:
+            for r in balanced_test:
+                f.write(json.dumps(r) + "\n")
+        print(f"[Manifest Saved] {balanced_manifest_path.name}: {len(balanced_test)} samples ({sample_k} Real, {sample_k} Fake)")
+
     return test_samples
 
 
@@ -666,6 +756,7 @@ def main():
     parser.add_argument("--test-only", action="store_true", help="Download and extract only test subset (SEED_subset_3.zip).")
     parser.add_argument("--skip-download", action="store_true", help="Skip download if already downloaded.")
     parser.add_argument("--skip-extract", action="store_true", help="Skip zip extraction if already done.")
+    parser.add_argument("--delete-zips", action="store_true", help="Delete zip files after extraction to free disk space.")
     parser.add_argument("--no-balance", action="store_true", help="Do not balance 50/50 Real/Fake in train set.")
     parser.add_argument("--update-config", action="store_true", default=True, help="Update configs/mfvlr.yaml.")
     args = parser.parse_args()
@@ -679,7 +770,7 @@ def main():
 
     # 2. Extract zips
     if not args.skip_extract:
-        find_and_extract_all_zips(data_dir, test_only=args.test_only)
+        find_and_extract_all_zips(data_dir, test_only=args.test_only, delete_zip=args.delete_zips)
 
     # 3. Parse and build manifests
     if args.test_only:

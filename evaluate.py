@@ -79,29 +79,87 @@ def main():
     )
     logger.info(f"Evaluation dataset size: {len(eval_dataset)} samples.")
 
-    # Build model and load checkpoint
+    # Resolve checkpoints to evaluate
+    ckpt_paths: list[str] = []
+    ckpt_input = args.checkpoint.strip()
+    if os.path.isdir(ckpt_input):
+        import glob
+        found = glob.glob(os.path.join(ckpt_input, "*.pt"))
+        import re
+        def get_epoch(p):
+            m = re.search(r"epoch_(\d+)", p)
+            return int(m.group(1)) if m else 999999
+        ckpt_paths = sorted(found, key=get_epoch)
+    elif "*" in ckpt_input:
+        import glob
+        found = glob.glob(ckpt_input)
+        import re
+        def get_epoch(p):
+            m = re.search(r"epoch_(\d+)", p)
+            return int(m.group(1)) if m else 999999
+        ckpt_paths = sorted(found, key=get_epoch)
+    elif "," in ckpt_input:
+        ckpt_paths = [c.strip() for c in ckpt_input.split(",") if c.strip()]
+    else:
+        ckpt_paths = [ckpt_input]
+
+    if not ckpt_paths:
+        logger.error(f"No checkpoint files found for: {args.checkpoint}")
+        return
+
+    # Build model once
     model = MFVLR().to(device)
-    logger.info(f"Loading checkpoint weights from: {args.checkpoint}")
-    load_checkpoint(filepath=args.checkpoint, model=model, device=device)
+    summary_results = []
 
-    # Execute paper-specified image-only evaluation
-    logger.info("Executing image-only evaluation (no prompt, no tokenizer, no FLT)...")
-    metrics = evaluate(
-        model=model,
-        dataloader=eval_loader,
-        device=device,
-        positive_label=fake_class_idx,
-    )
+    for idx, cp in enumerate(ckpt_paths, 1):
+        if len(ckpt_paths) > 1:
+            logger.info(f"\n[{idx}/{len(ckpt_paths)}] Evaluating checkpoint: {os.path.basename(cp)}")
+        else:
+            logger.info(f"Loading checkpoint weights from: {cp}")
 
-    logger.info("=" * 50)
-    logger.info("EVALUATION RESULTS:")
-    logger.info(f"  Detection Accuracy (ACC): {metrics.get('acc', 0.0):.2f}%")
-    logger.info(f"  Detection AUC Score:      {metrics.get('auc', 0.0):.2f}%")
-    logger.info(f"  Localization mIoU:        {metrics.get('miou', 0.0):.2f}%")
-    for k, v in metrics.items():
-        if k not in ("acc", "auc", "miou"):
-            logger.info(f"  {k}: {v:.2f}%")
-    logger.info("=" * 50)
+        load_checkpoint(filepath=cp, model=model, device=device)
+
+        logger.info("Executing image-only evaluation (no prompt, no tokenizer, no FLT)...")
+        metrics = evaluate(
+            model=model,
+            dataloader=eval_loader,
+            device=device,
+            positive_label=fake_class_idx,
+        )
+
+        acc = metrics.get("acc", 0.0)
+        auc = metrics.get("auc", 0.0)
+        miou = metrics.get("miou", None)
+
+        summary_results.append({
+            "checkpoint": os.path.basename(cp),
+            "acc": acc,
+            "auc": auc,
+            "miou": miou,
+        })
+
+        logger.info("=" * 50)
+        logger.info(f"EVALUATION RESULTS for {os.path.basename(cp)}:")
+        logger.info(f"  Detection Accuracy (ACC): {acc:.2f}%")
+        logger.info(f"  Detection AUC Score:      {auc:.2f}%")
+        if miou is not None:
+            logger.info(f"  Localization mIoU:        {miou:.2f}%")
+        for k, v in metrics.items():
+            if k not in ("acc", "auc", "miou"):
+                logger.info(f"  {k}: {v:.2f}%")
+        logger.info("=" * 50)
+
+    # Print summary table if evaluated multiple checkpoints
+    if len(summary_results) > 1:
+        print("\n" + "=" * 65)
+        print("CHECKPOINT COMPARISON SUMMARY")
+        print("=" * 65)
+        print(f"{'Checkpoint':<30} | {'ACC (%)':<10} | {'AUC (%)':<10} | {'mIoU (%)':<10}")
+        print("-" * 65)
+        for r in summary_results:
+            miou_str = f"{r['miou']:.2f}" if r["miou"] is not None else "N/A"
+            print(f"{r['checkpoint']:<30} | {r['acc']:<10.2f} | {r['auc']:<10.2f} | {miou_str:<10}")
+        print("=" * 65 + "\n")
 
 
 if __name__ == "__main__":

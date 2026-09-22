@@ -11,6 +11,7 @@ import sys
 import csv
 import argparse
 from pathlib import Path
+from typing import List, Dict, Any
 from collections import defaultdict
 
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path.cwd())).resolve()
