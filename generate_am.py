@@ -117,6 +117,7 @@ def run_am_generation(
     end_index: Optional[int] = None,
     mock: bool = False,
     dry_run: bool = False,
+    force: bool = False,
 ) -> List[Dict[str, Any]]:
     """Runs AM generation ensuring source-fake pairs are strictly preserved."""
     if generator not in VALID_AM_GENERATORS:
@@ -270,6 +271,71 @@ def run_am_generation(
                 sys.path.insert(0, str(iafaces_dir))
 
             try:
+                # Ensure pure PyTorch reference ops fallback so no nvcc / C++ compiler is needed
+                import types
+                import torch.nn as nn
+                import torch.nn.functional as F
+
+                if "modules.op" not in sys.modules:
+                    op_mod = types.ModuleType("modules.op")
+
+                    class FusedLeakyReLU(nn.Module):
+                        def __init__(self, channel, negative_slope=0.2, scale=2 ** 0.5):
+                            super().__init__()
+                            self.bias = nn.Parameter(torch.zeros(channel))
+                            self.negative_slope = negative_slope
+                            self.scale = scale
+
+                        def forward(self, x):
+                            rest_dim = [1] * (x.ndim - self.bias.ndim - 1)
+                            return F.leaky_relu(x + self.bias.view(1, self.bias.shape[0], *rest_dim), negative_slope=self.negative_slope) * self.scale
+
+                    def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2 ** 0.5):
+                        rest_dim = [1] * (input.ndim - bias.ndim - 1)
+                        return F.leaky_relu(input + bias.view(1, bias.shape[0], *rest_dim), negative_slope=negative_slope) * scale
+
+                    def upfirdn2d_native(input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1):
+                        _, channel, in_h, in_w = input.shape
+                        input = input.reshape(-1, in_h, in_w, 1)
+                        _, in_h, in_w, minor = input.shape
+                        kernel_h, kernel_w = kernel.shape
+                        out = input.view(-1, in_h, 1, in_w, 1, minor)
+                        out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
+                        out = out.view(-1, in_h * up_y, in_w * up_x, minor)
+                        out = F.pad(out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)])
+                        out = out[:, max(-pad_y0, 0) : out.shape[1] - max(-pad_y1, 0), max(-pad_x0, 0) : out.shape[2] - max(-pad_x1, 0), :]
+                        out = out.permute(0, 3, 1, 2)
+                        out = out.reshape([-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1])
+                        w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
+                        out = F.conv2d(out, w)
+                        out = out.reshape(-1, minor, in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1, in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1)
+                        out = out.permute(0, 2, 3, 1)
+                        out = out[:, ::down_y, ::down_x, :]
+                        out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1
+                        out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1
+                        return out.view(-1, channel, out_h, out_w)
+
+                    def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
+                        return upfirdn2d_native(input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1])
+
+                    op_mod.FusedLeakyReLU = FusedLeakyReLU
+                    op_mod.fused_leaky_relu = fused_leaky_relu
+                    op_mod.upfirdn2d = upfirdn2d
+                    sys.modules["modules.op"] = op_mod
+                    sys.modules["modules.op.fused_act"] = op_mod
+                    sys.modules["modules.op.upfirdn2d"] = op_mod
+
+                # Ensure data_loader.celebahq doesn't fail if albumentations is missing
+                if "data_loader.celebahq" not in sys.modules:
+                    dl_mod = types.ModuleType("data_loader.celebahq")
+                    dl_mod.BOX = np.array([
+                        [274, 360, 486, 550],
+                        [538, 360, 750, 550],
+                        [370, 530, 654, 700],
+                        [350, 690, 674, 870],
+                    ])
+                    sys.modules["data_loader.celebahq"] = dl_mod
+
                 from importlib import import_module
                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
                 ckpt = torch.load(str(checkpoint), map_location="cpu")
@@ -284,9 +350,18 @@ def run_am_generation(
                 iafaces_netE.eval().to(device)
                 iafaces_netG.eval().to(device)
 
-                logger.info("Official IAFaces models loaded on %s in %.2fs", device, time.time() - t_load_start)
+                logger.info(
+                    "Official IAFaces models loaded on %s in %.2fs (Encoder: %d params, Generator: %d params)",
+                    device,
+                    time.time() - t_load_start,
+                    sum(p.numel() for p in iafaces_netE.parameters()),
+                    sum(p.numel() for p in iafaces_netG.parameters()),
+                )
             except Exception as e:
-                logger.warning("Failed to initialize official IAFaces model: %s. Falling back to mock.", e)
+                logger.error("Failed to initialize official IAFaces model: %s", e, exc_info=True)
+                if not mock:
+                    raise RuntimeError(f"Official IAFaces initialization failed: {e}")
+                logger.warning("Falling back to mock mode for IAFaces.")
 
     generated_records: List[Dict[str, Any]] = []
 
@@ -300,8 +375,8 @@ def run_am_generation(
         fake_path = dest_fake_dir / fake_filename
         dest_src_file = dest_source_dir / fake_filename
 
-        # Smart resume: if fake already exists, skip IMMEDIATELY to avoid slow disk I/O
-        if fake_path.exists() and fake_path.stat().st_size > 0:
+        # Smart resume: if fake already exists, skip IMMEDIATELY to avoid slow disk I/O (unless force=True)
+        if not force and fake_path.exists() and fake_path.stat().st_size > 0:
             continue
 
         # If attribute is 'all', 'mixed', 'auto', or None, automatically cycle through all attributes
@@ -414,14 +489,7 @@ def run_am_generation(
                 "param_count": 168492291,
                 "attribute_manipulation_method": f"Latent hyperplane shift along CelebA classifier weight ({celeb_attr}) with DDIM stochastic inversion",
             }
-            logger.info(
-                "Official DiffAE sample %d (%s) generated in %.2fs | Peak VRAM: %.1f MB | RAM: %.1f MB",
-                idx,
-                cur_attribute,
-                gen_duration,
-                peak_vram_mb,
-                ram_mb,
-            )
+            pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
         elif iafaces_netE is not None and iafaces_netG is not None and generator == "IAFaces":
             import time
             import psutil
@@ -445,6 +513,11 @@ def run_am_generation(
                 "young": [0, 1, 2, 3],
                 "wavy_hair": [0, 1],
                 "bangs": [0, 1],
+                "blond_hair": [0, 1],
+                "black_hair": [0, 1],
+                "no_beard": [3],
+                "pale_skin": [2],
+                "bushy_eyebrows": [0, 1],
             }
             comp_indices = comp_map.get(cur_attribute.lower(), [3])
 
@@ -472,15 +545,17 @@ def run_am_generation(
                 "official_iafaces": True,
                 "attribute": cur_attribute,
             }
+            pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
         elif mock or checkpoint is None or not checkpoint.exists():
             fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
             sample_metrics = {"real_inference": False, "note": "mock"}
+            pbar.set_postfix({"attr": cur_attribute, "mode": "mock"})
         else:
-            logger.info("Running inference with checkpoint: %s", checkpoint)
             fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
             sample_metrics = {"real_inference": False}
+            pbar.set_postfix({"attr": cur_attribute, "mode": "fallback"})
 
         record = {
             "sample_id": sample_stem,
@@ -535,6 +610,7 @@ def main() -> int:
     parser.add_argument("--end-index", type=int, default=None, help="Explicit end index")
     parser.add_argument("--mock", action="store_true", help="Run in mock mode without heavy checkpoints")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without generating files")
+    parser.add_argument("--force", action="store_true", help="Force re-generation even if output images already exist")
 
     args = parser.parse_args()
 
@@ -553,6 +629,7 @@ def main() -> int:
             end_index=args.end_index,
             mock=args.mock,
             dry_run=args.dry_run,
+            force=args.force,
         )
         return 0
     except Exception as e:

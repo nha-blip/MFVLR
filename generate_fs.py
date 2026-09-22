@@ -93,6 +93,7 @@ def run_fs_generation(
     end_index: Optional[int] = None,
     mock: bool = False,
     dry_run: bool = False,
+    force: bool = False,
 ) -> List[Dict[str, Any]]:
     """Runs FS generation maintaining source, target, and fake relations."""
     if generator not in VALID_FS_GENERATORS:
@@ -166,7 +167,9 @@ def run_fs_generation(
 
     generated_records: List[Dict[str, Any]] = []
 
-    for idx in indices:
+    from tqdm import tqdm
+    pbar = tqdm(indices, desc=f"Generating {generator}")
+    for idx in pbar:
         sample_seed = seed + idx
         src_path = available_sources[idx]
         tgt_idx = (idx + 5) % len(available_sources)
@@ -197,8 +200,7 @@ def run_fs_generation(
             logger.info("[DRY-RUN] Would generate FS fake %s -> %s", generator, fake_path)
             continue
 
-        if fake_path.exists() and fake_path.stat().st_size > 0:
-            logger.debug("File %s exists, skipping.", fake_filename)
+        if not force and fake_path.exists() and fake_path.stat().st_size > 0:
             continue
 
         with Image.open(dest_src_file) as s_img:
@@ -268,22 +270,17 @@ def run_fs_generation(
                 "ram_mb": round(ram_mb, 2),
                 "real_inference": True,
             }
-            logger.info(
-                "Real DiffFace sample %d generated in %.2fs | Peak VRAM: %.1f MB | RAM: %.1f MB",
-                idx,
-                gen_duration,
-                peak_vram_mb,
-                ram_mb,
-            )
+            pbar.set_postfix({"sec": f"{gen_duration:.2f}"})
         elif mock or checkpoint is None or not checkpoint.exists():
             fake_bgr = apply_mock_face_swap(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), cv2.cvtColor(tgt_np, cv2.COLOR_RGB2BGR), seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
             sample_metrics = {"real_inference": False, "note": "mock"}
+            pbar.set_postfix({"mode": "mock"})
         else:
-            logger.info("Running inference with checkpoint: %s", checkpoint)
             fake_bgr = apply_mock_face_swap(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), cv2.cvtColor(tgt_np, cv2.COLOR_RGB2BGR), seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
             sample_metrics = {"real_inference": False}
+            pbar.set_postfix({"mode": "fallback"})
 
         record = {
             "sample_id": sample_stem,
@@ -341,6 +338,7 @@ def main() -> int:
     parser.add_argument("--end-index", type=int, default=None, help="Explicit end index")
     parser.add_argument("--mock", action="store_true", help="Run in mock mode without heavy checkpoints")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without generating files")
+    parser.add_argument("--force", action="store_true", help="Force re-generation even if output images already exist")
 
     args = parser.parse_args()
 
@@ -359,6 +357,7 @@ def main() -> int:
             end_index=args.end_index,
             mock=args.mock,
             dry_run=args.dry_run,
+            force=args.force,
         )
         return 0
     except Exception as e:
