@@ -25,9 +25,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import math
+import time
 import cv2
 import numpy as np
+import psutil
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 # Safe load monkeypatch for PyTorch 2.6+ where weights_only=True by default breaks legacy checkpoints
 _orig_torch_load = torch.load
@@ -153,8 +158,6 @@ def run_fs_generation(
     # Real inference setup for DiffFace
     pipe = None
     if not mock and not dry_run and generator == "DiffFace":
-        import time
-        import psutil
         from diffusers import DDPMPipeline, DDIMScheduler
 
         logger.info("Initializing real DiffFace diffusion pipeline (google/ddpm-celebahq-256)...")
@@ -213,9 +216,6 @@ def run_fs_generation(
 
         sample_metrics = {}
         if pipe is not None and generator == "DiffFace":
-            import time
-            import psutil
-            import torch
 
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()

@@ -27,9 +27,15 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import math
+import time
+import types
 import cv2
 import numpy as np
+import psutil
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 # Safe load monkeypatch for PyTorch 2.6+ where weights_only=True by default breaks legacy checkpoints
 _orig_torch_load = torch.load
@@ -183,8 +189,6 @@ def run_am_generation(
     cls_sha256 = None
 
     if not mock and not dry_run and generator == "DiffAE":
-        import time
-        import psutil
         import torchvision.transforms.functional as Ftrans
 
         # Resolve checkpoints
@@ -250,7 +254,6 @@ def run_am_generation(
     iafaces_netE = None
     iafaces_netG = None
     if not mock and not dry_run and generator == "IAFaces":
-        import time
         if checkpoint is None or not Path(checkpoint).exists():
             default_iafaces = Path("checkpoints/AM/IAFaces/iafaces-celebahq-256.pth")
             if default_iafaces.exists():
@@ -272,9 +275,6 @@ def run_am_generation(
 
             try:
                 # Ensure pure PyTorch reference ops fallback so no nvcc / C++ compiler is needed
-                import types
-                import torch.nn as nn
-                import torch.nn.functional as F
 
                 if "modules.op" not in sys.modules:
                     op_mod = types.ModuleType("modules.op")
@@ -403,10 +403,6 @@ def run_am_generation(
 
         sample_metrics = {}
         if diffae_model is not None and diffae_cls_model is not None and generator == "DiffAE":
-            import time
-            import math
-            import psutil
-            import torch
             import torchvision.transforms.functional as Ftrans
             from dataset import CelebAttrDataset
 
@@ -491,10 +487,6 @@ def run_am_generation(
             }
             pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
         elif iafaces_netE is not None and iafaces_netG is not None and generator == "IAFaces":
-            import time
-            import psutil
-            import torch.nn.functional as F
-
             device = next(iafaces_netE.parameters()).device
             t_gen_start = time.time()
 
