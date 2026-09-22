@@ -455,42 +455,43 @@ def run_efs_generation(
             import time
             import psutil
 
-            for idx in batch_ids:
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+            t_gen_start = time.time()
+            gen_device = next(latdiff_model.parameters()).device
+
+            torch.manual_seed(batch_seed)
+            np.random.seed(batch_seed)
+
+            shape = [
+                latdiff_model.model.diffusion_model.in_channels,
+                latdiff_model.model.diffusion_model.image_size,
+                latdiff_model.model.diffusion_model.image_size,
+            ]
+
+            with torch.no_grad():
+                samples, _ = latdiff_sampler.sample(S=steps, batch_size=cur_b, shape=shape, eta=0.0, verbose=False)
+                x_samples = latdiff_model.decode_first_stage(samples)
+                x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
+
+            total_duration = time.time() - t_gen_start
+            per_img_duration = round(total_duration / cur_b, 3)
+            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+            ram_mb = psutil.Process().memory_info().rss / (1024**2)
+
+            for b_i, idx in enumerate(batch_ids):
                 sample_seed = seed + idx
                 file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
-
-                if torch.cuda.is_available():
-                    torch.cuda.reset_peak_memory_stats()
-                t_gen_start = time.time()
-                gen_device = next(latdiff_model.parameters()).device
-
-                torch.manual_seed(sample_seed)
-                np.random.seed(sample_seed)
-
-                shape = [
-                    latdiff_model.model.diffusion_model.in_channels,
-                    latdiff_model.model.diffusion_model.image_size,
-                    latdiff_model.model.diffusion_model.image_size,
-                ]
-
-                with torch.no_grad():
-                    samples, _ = latdiff_sampler.sample(S=steps, batch_size=1, shape=shape, eta=0.0, verbose=False)
-                    x_samples = latdiff_model.decode_first_stage(samples)
-                    x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
-
-                gen_duration = round(time.time() - t_gen_start, 3)
-                img_np = (x_samples[0].permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
+                img_np = (x_samples[b_i].permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
                 img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
                 img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
                 cv2.imwrite(str(file_path), img)
 
-                peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
-                ram_mb = psutil.Process().memory_info().rss / (1024**2)
-
                 sample_metrics = {
-                    "inference_time_sec": gen_duration,
+                    "inference_time_sec": per_img_duration,
                     "peak_vram_mb": round(peak_vram_mb, 2),
                     "ram_mb": round(ram_mb, 2),
+                    "batch_size": cur_b,
                     "native_resolution": "256x256",
                     "final_resolution": "224x224",
                     "real_inference": True,
@@ -508,7 +509,16 @@ def run_efs_generation(
                     "metrics": sample_metrics,
                 }
                 generated_records.append(record)
-                logger.info("Real LatDiff sample %d generated in %.2fs | Peak VRAM: %.1f MB", idx, gen_duration, peak_vram_mb)
+
+            logger.info(
+                "Real LatDiff generated batch of %d (samples %d-%d) in %.2fs (%.3fs/img) | Peak VRAM: %.1f MB",
+                cur_b,
+                batch_ids[0],
+                batch_ids[-1],
+                total_duration,
+                per_img_duration,
+                peak_vram_mb,
+            )
 
         else:
             # Mock or fallback
