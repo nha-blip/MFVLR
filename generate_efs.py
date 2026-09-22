@@ -84,6 +84,9 @@ def run_efs_generation(
     num_shards: int = 1,
     start_index: Optional[int] = None,
     end_index: Optional[int] = None,
+    batch_size: int = 4,
+    fp16: bool = True,
+    steps: int = 50,
     mock: bool = False,
     dry_run: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -130,11 +133,12 @@ def run_efs_generation(
         import torch
         from diffusers import DDPMPipeline, DDIMScheduler
 
-        logger.info("Initializing real DDPM diffusion pipeline (google/ddpm-celebahq-256)...")
-        t_load_start = time.time()
-        pipe = DDPMPipeline.from_pretrained("google/ddpm-celebahq-256")
-        pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if (fp16 and device == "cuda") else torch.float32
+        logger.info("Initializing real DDPM diffusion pipeline (google/ddpm-celebahq-256) in %s...", dtype)
+        t_load_start = time.time()
+        pipe = DDPMPipeline.from_pretrained("google/ddpm-celebahq-256", torch_dtype=dtype)
+        pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
         pipe.to(device)
         logger.info("DDPM pipeline loaded on %s in %.2fs", device, time.time() - t_load_start)
 
@@ -236,20 +240,32 @@ def run_efs_generation(
             sum(p.numel() for p in latdiff_model.parameters()),
         )
 
+    # Filter pending indices that need generation (for resume support)
+    pending_indices = []
     for idx in indices:
-        sample_seed = seed + idx
         filename = f"{generator.lower()}_{idx:06d}.png"
         file_path = gen_out_dir / filename
-
         if dry_run:
-            logger.info("[DRY-RUN] Would generate %s -> %s (seed=%d)", generator, file_path, sample_seed)
+            logger.info("[DRY-RUN] Would generate %s -> %s (seed=%d)", generator, file_path, seed + idx)
             continue
-
         if file_path.exists() and file_path.stat().st_size > 0:
             logger.debug("File %s exists, skipping.", filename)
             continue
+        pending_indices.append(idx)
 
-        sample_metrics = {}
+    if dry_run:
+        return []
+
+    logger.info("Pending samples to generate for [%s]: %d / %d (batch_size=%d, fp16=%s)",
+                generator, len(pending_indices), len(indices), batch_size, fp16)
+
+    effective_bs = max(1, batch_size) if (pipe is not None or sg3_model is not None) else 1
+
+    for b_start in range(0, len(pending_indices), effective_bs):
+        batch_ids = pending_indices[b_start:b_start + effective_bs]
+        cur_b = len(batch_ids)
+        batch_seed = seed + batch_ids[0]
+
         if pipe is not None and generator == "DDPM":
             import time
             import psutil
@@ -259,32 +275,55 @@ def run_efs_generation(
                 torch.cuda.reset_peak_memory_stats()
             t_gen_start = time.time()
             gen_device = "cuda" if torch.cuda.is_available() else "cpu"
-            gen_seed = torch.Generator(device=gen_device).manual_seed(sample_seed)
+            gen_seed = torch.Generator(device=gen_device).manual_seed(batch_seed)
             with torch.no_grad():
-                diff_out = pipe(batch_size=1, generator=gen_seed, num_inference_steps=50).images[0]
-            gen_duration = time.time() - t_gen_start
-
-            # Convert PIL image to BGR numpy array and resize from 256x256 to 224x224
-            img_rgb = np.array(diff_out)
-            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-            img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+                diff_outs = pipe(batch_size=cur_b, generator=gen_seed, num_inference_steps=steps).images
+            total_duration = time.time() - t_gen_start
+            per_img_duration = round(total_duration / cur_b, 3)
 
             peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
             ram_mb = psutil.Process().memory_info().rss / (1024**2)
 
-            sample_metrics = {
-                "inference_time_sec": round(gen_duration, 3),
-                "peak_vram_mb": round(peak_vram_mb, 2),
-                "ram_mb": round(ram_mb, 2),
-                "real_inference": True,
-            }
+            for b_i, idx in enumerate(batch_ids):
+                diff_out = diff_outs[b_i]
+                img_rgb = np.array(diff_out)
+                img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+                img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+
+                file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
+                cv2.imwrite(str(file_path), img)
+
+                sample_metrics = {
+                    "inference_time_sec": per_img_duration,
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "batch_size": cur_b,
+                    "real_inference": True,
+                }
+                record = {
+                    "sample_id": f"{generator.lower()}_{idx:06d}",
+                    "generator": generator,
+                    "forgery_type": "EFS",
+                    "architecture": "Diffusion",
+                    "image_path": file_path.as_posix(),
+                    "seed": seed + idx,
+                    "checkpoint": "google/ddpm-celebahq-256",
+                    "shard_id": shard_id,
+                    "index": idx,
+                    "metrics": sample_metrics,
+                }
+                generated_records.append(record)
+
             logger.info(
-                "Real DDPM sample %d generated in %.2fs | Peak VRAM: %.1f MB | RAM: %.1f MB",
-                idx,
-                gen_duration,
+                "Real DDPM generated batch of %d (samples %d-%d) in %.2fs (%.2fs/img) | Peak VRAM: %.1f MB",
+                cur_b,
+                batch_ids[0],
+                batch_ids[-1],
+                total_duration,
+                per_img_duration,
                 peak_vram_mb,
-                ram_mb,
             )
+
         elif sg3_model is not None and generator == "StyleGAN3":
             import time
             import psutil
@@ -295,121 +334,139 @@ def run_efs_generation(
             t_gen_start = time.time()
             gen_device = next(sg3_model.parameters()).device
 
-            z = torch.from_numpy(np.random.RandomState(sample_seed).randn(1, sg3_model.z_dim)).to(gen_device)
-            label = torch.zeros([1, sg3_model.c_dim], device=gen_device)
+            z = torch.from_numpy(np.random.RandomState(batch_seed).randn(cur_b, sg3_model.z_dim)).to(gen_device)
+            label = torch.zeros([cur_b, sg3_model.c_dim], device=gen_device)
 
             with torch.no_grad():
-                img_tensor = sg3_model(z, label, truncation_psi=1.0, noise_mode='const')
+                img_tensors = sg3_model(z, label, truncation_psi=1.0, noise_mode='const')
 
-            gen_duration = time.time() - t_gen_start
-
-            # Image post-processing: [-1, 1] -> [0, 255] uint8 RGB -> BGR -> resize 224x224
-            img_np = (img_tensor.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
-            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-            img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+            total_duration = time.time() - t_gen_start
+            per_img_duration = round(total_duration / cur_b, 3)
 
             peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
             ram_mb = psutil.Process().memory_info().rss / (1024**2)
 
-            sample_metrics = {
-                "inference_time_sec": round(gen_duration, 3),
-                "peak_vram_mb": round(peak_vram_mb, 2),
-                "ram_mb": round(ram_mb, 2),
-                "native_resolution": f"{sg3_model.img_resolution}x{sg3_model.img_resolution}",
-                "final_resolution": "224x224",
-                "real_inference": True,
-            }
+            for b_i, idx in enumerate(batch_ids):
+                img_np = (img_tensors[b_i:b_i+1].permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
+                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+
+                file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
+                cv2.imwrite(str(file_path), img)
+
+                sample_metrics = {
+                    "inference_time_sec": per_img_duration,
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "batch_size": cur_b,
+                    "native_resolution": f"{sg3_model.img_resolution}x{sg3_model.img_resolution}",
+                    "final_resolution": "224x224",
+                    "real_inference": True,
+                }
+                record = {
+                    "sample_id": f"{generator.lower()}_{idx:06d}",
+                    "generator": generator,
+                    "forgery_type": "EFS",
+                    "architecture": "GAN",
+                    "image_path": file_path.as_posix(),
+                    "seed": seed + idx,
+                    "checkpoint": str(checkpoint),
+                    "shard_id": shard_id,
+                    "index": idx,
+                    "metrics": sample_metrics,
+                }
+                generated_records.append(record)
+
             logger.info(
-                "Real StyleGAN3 sample %d generated in %.2fs | Peak VRAM: %.1f MB | RAM: %.1f MB",
-                idx,
-                gen_duration,
+                "Real StyleGAN3 generated batch of %d (samples %d-%d) in %.2fs (%.3fs/img) | Peak VRAM: %.1f MB",
+                cur_b,
+                batch_ids[0],
+                batch_ids[-1],
+                total_duration,
+                per_img_duration,
                 peak_vram_mb,
-                ram_mb,
             )
+
         elif latdiff_model is not None and generator == "LatDiff":
             import time
             import psutil
             import torch
 
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
-            t_gen_start = time.time()
-            gen_device = next(latdiff_model.parameters()).device
+            for idx in batch_ids:
+                sample_seed = seed + idx
+                file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
 
-            torch.manual_seed(sample_seed)
-            np.random.seed(sample_seed)
+                if torch.cuda.is_available():
+                    torch.cuda.reset_peak_memory_stats()
+                t_gen_start = time.time()
+                gen_device = next(latdiff_model.parameters()).device
 
-            shape = [
-                latdiff_model.model.diffusion_model.in_channels,
-                latdiff_model.model.diffusion_model.image_size,
-                latdiff_model.model.diffusion_model.image_size,
-            ]
+                torch.manual_seed(sample_seed)
+                np.random.seed(sample_seed)
 
-            with torch.no_grad():
-                samples, _ = latdiff_sampler.sample(S=50, batch_size=1, shape=shape, eta=0.0, verbose=False)
-                x_samples = latdiff_model.decode_first_stage(samples)
-                x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
+                shape = [
+                    latdiff_model.model.diffusion_model.in_channels,
+                    latdiff_model.model.diffusion_model.image_size,
+                    latdiff_model.model.diffusion_model.image_size,
+                ]
 
-            gen_duration = time.time() - t_gen_start
+                with torch.no_grad():
+                    samples, _ = latdiff_sampler.sample(S=steps, batch_size=1, shape=shape, eta=0.0, verbose=False)
+                    x_samples = latdiff_model.decode_first_stage(samples)
+                    x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
 
-            # Image post-processing: [0, 1] float -> [0, 255] uint8 RGB -> BGR -> resize 224x224
-            img_np = (x_samples[0].permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
-            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-            img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+                gen_duration = round(time.time() - t_gen_start, 3)
+                img_np = (x_samples[0].permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
+                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+                cv2.imwrite(str(file_path), img)
 
-            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
-            ram_mb = psutil.Process().memory_info().rss / (1024**2)
+                peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+                ram_mb = psutil.Process().memory_info().rss / (1024**2)
 
-            sample_metrics = {
-                "inference_time_sec": round(gen_duration, 3),
-                "peak_vram_mb": round(peak_vram_mb, 2),
-                "ram_mb": round(ram_mb, 2),
-                "native_resolution": "256x256",
-                "final_resolution": "224x224",
-                "real_inference": True,
-            }
-            logger.info(
-                "Real LatDiff sample %d generated in %.2fs | Peak VRAM: %.1f MB | RAM: %.1f MB",
-                idx,
-                gen_duration,
-                peak_vram_mb,
-                ram_mb,
-            )
-        elif mock or checkpoint is None or not checkpoint.exists():
-            if not mock and (checkpoint is not None and not checkpoint.exists()):
-                logger.warning("Checkpoint %s not found. Falling back to mock generator.", checkpoint)
-            img = generate_mock_face(generator=generator, seed=sample_seed, size=224)
-            sample_metrics = {"real_inference": False, "note": "mock"}
+                sample_metrics = {
+                    "inference_time_sec": gen_duration,
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "native_resolution": "256x256",
+                    "final_resolution": "224x224",
+                    "real_inference": True,
+                }
+                record = {
+                    "sample_id": f"{generator.lower()}_{idx:06d}",
+                    "generator": generator,
+                    "forgery_type": "EFS",
+                    "architecture": "Diffusion",
+                    "image_path": file_path.as_posix(),
+                    "seed": sample_seed,
+                    "checkpoint": str(checkpoint),
+                    "shard_id": shard_id,
+                    "index": idx,
+                    "metrics": sample_metrics,
+                }
+                generated_records.append(record)
+                logger.info("Real LatDiff sample %d generated in %.2fs | Peak VRAM: %.1f MB", idx, gen_duration, peak_vram_mb)
+
         else:
-            logger.info("Generating using checkpoint: %s", checkpoint)
-            img = generate_mock_face(generator=generator, seed=sample_seed, size=224)
-            sample_metrics = {"real_inference": False}
-
-        cv2.imwrite(str(file_path), img)
-
-        checkpoint_str = "mock"
-        if pipe is not None and generator == "DDPM":
-            checkpoint_str = "google/ddpm-celebahq-256"
-        elif sg3_model is not None and generator == "StyleGAN3":
-            checkpoint_str = str(checkpoint)
-        elif latdiff_model is not None and generator == "LatDiff":
-            checkpoint_str = str(checkpoint)
-        elif checkpoint:
-            checkpoint_str = str(checkpoint)
-
-        record = {
-            "sample_id": f"{generator.lower()}_{idx:06d}",
-            "generator": generator,
-            "forgery_type": "EFS",
-            "architecture": "GAN" if generator == "StyleGAN3" else "Diffusion",
-            "image_path": file_path.as_posix(),
-            "seed": sample_seed,
-            "checkpoint": checkpoint_str,
-            "shard_id": shard_id,
-            "index": idx,
-            "metrics": sample_metrics,
-        }
-        generated_records.append(record)
+            # Mock or fallback
+            for idx in batch_ids:
+                sample_seed = seed + idx
+                file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
+                img = generate_mock_face(generator=generator, seed=sample_seed, size=224)
+                cv2.imwrite(str(file_path), img)
+                record = {
+                    "sample_id": f"{generator.lower()}_{idx:06d}",
+                    "generator": generator,
+                    "forgery_type": "EFS",
+                    "architecture": "GAN" if generator == "StyleGAN3" else "Diffusion",
+                    "image_path": file_path.as_posix(),
+                    "seed": sample_seed,
+                    "checkpoint": "mock",
+                    "shard_id": shard_id,
+                    "index": idx,
+                    "metrics": {"real_inference": False},
+                }
+                generated_records.append(record)
 
     # Save provenance
     if not dry_run and generated_records:
@@ -434,7 +491,10 @@ def main() -> int:
     parser.add_argument("--shard-id", type=int, default=0, help="Shard index for parallel cluster jobs")
     parser.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
     parser.add_argument("--start-index", type=int, default=None, help="Explicit start index (overrides sharding)")
-    parser.add_argument("--end-index", type=int, default=None, help="Explicit end index")
+    parser.add_argument("--batch-size", type=int, default=4, help="Inference batch size for faster parallel generation (e.g. 4 or 8)")
+    parser.add_argument("--fp16", action="store_true", default=True, help="Enable FP16 half-precision on CUDA for 2x speedup")
+    parser.add_argument("--no-fp16", action="store_false", dest="fp16", help="Disable FP16")
+    parser.add_argument("--steps", type=int, default=50, help="Number of diffusion inference steps (default: 50, use 25 for 2x speedup)")
     parser.add_argument("--mock", action="store_true", help="Generate synthetic mock samples without checkpoint")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without generating files")
 
@@ -451,6 +511,9 @@ def main() -> int:
             num_shards=args.num_shards,
             start_index=args.start_index,
             end_index=args.end_index,
+            batch_size=args.batch_size,
+            fp16=args.fp16,
+            steps=args.steps,
             mock=args.mock,
             dry_run=args.dry_run,
         )
