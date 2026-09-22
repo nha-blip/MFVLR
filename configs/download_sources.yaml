@@ -58,10 +58,12 @@ sources:
     category: AM
     architecture: GAN
     repository: "https://github.com/InterDigitalInc/latent-transformer"
-    checkpoint_url: null
-    gdrive_id: "1bMTNWkh5LArTrWPaVtMrVcNtxi57pc-W"
-    filename: "psp_ffhq_encode.pt"
-    manual_instructions: "Latent Transformer pSp FFHQ encoder checkpoint."
+    files:
+      - filename: "psp_ffhq_encode.pt"
+        gdrive_id: "1bMTNWkh5LArlaWSc_wa8VKyq2V42T2z0"
+      - filename: "pretrained_models.zip"
+        gdrive_id: "14uipafI5mena7LFFtvPh6r5HdzjBqFEt"
+    manual_instructions: "Latent Transformer pSp FFHQ encoder and T-Net models."
 
   IAFaces:
     category: AM

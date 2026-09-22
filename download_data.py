@@ -313,6 +313,15 @@ class CheckpointManager:
                     )
                     if success:
                         status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
+                        if dest_file.suffix.lower() == ".zip" and not dry_run:
+                            try:
+                                import zipfile
+                                logger.info("Extracting %s to %s ...", dest_file.name, dest_file.parent)
+                                with zipfile.ZipFile(dest_file, "r") as zf:
+                                    zf.extractall(dest_file.parent)
+                                logger.info("Successfully extracted %s.", dest_file.name)
+                            except Exception as ze:
+                                logger.warning("Failed to automatically extract %s: %s", dest_file.name, ze)
                     else:
                         status_report["failed"].append({"generator": gen_name, "gdrive_id": f_gid})
 

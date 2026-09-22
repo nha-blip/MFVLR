@@ -256,6 +256,146 @@ def run_am_generation(
             state_cls.get("global_step"),
         )
 
+    # Real inference setup for LatTrans
+    lattrans_net = None
+    lattrans_tnets = {}
+    if not mock and not dry_run and generator == "LatTrans":
+        lattrans_repo = Path(__file__).resolve().parent / "external" / "latent-transformer"
+        if not (lattrans_repo / "nets.py").exists():
+            logger.info("Cloning LatTrans repository from InterDigitalInc/latent-transformer...")
+            import subprocess
+            lattrans_repo.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "clone", "https://github.com/InterDigitalInc/latent-transformer.git", str(lattrans_repo)], check=True)
+
+        p2p_repo = lattrans_repo / "pixel2style2pixel"
+        if not (p2p_repo / "models").exists():
+            logger.info("Cloning pixel2style2pixel repository into %s...", p2p_repo)
+            import subprocess
+            subprocess.run(["git", "clone", "https://github.com/eladrich/pixel2style2pixel.git", str(p2p_repo)], check=True)
+
+        if str(lattrans_repo) not in sys.path:
+            sys.path.insert(0, str(lattrans_repo))
+        if str(p2p_repo) not in sys.path:
+            sys.path.insert(0, str(p2p_repo))
+
+        default_psp = Path("checkpoints/AM/LatTrans/psp_ffhq_encode.pt")
+        if checkpoint is None or not Path(checkpoint).exists():
+            if default_psp.exists():
+                checkpoint = default_psp
+
+        if checkpoint is None or not Path(checkpoint).exists():
+            logger.warning("LatTrans pSp checkpoint not found at %s. Falling back to mock.", checkpoint)
+        else:
+            logger.info("Initializing official LatTrans model with pSp from %s...", checkpoint)
+            t_load_start = time.time()
+            try:
+                # Ensure pure PyTorch reference ops for stylegan2 in pSp
+                import types
+                if "models.stylegan2.op" not in sys.modules:
+                    op_mod = types.ModuleType("models.stylegan2.op")
+
+                    class FusedLeakyReLU(nn.Module):
+                        def __init__(self, channel, negative_slope=0.2, scale=2 ** 0.5):
+                            super().__init__()
+                            self.bias = nn.Parameter(torch.zeros(channel))
+                            self.negative_slope = negative_slope
+                            self.scale = scale
+
+                        def forward(self, x):
+                            rest_dim = [1] * (x.ndim - self.bias.ndim - 1)
+                            return F.leaky_relu(x + self.bias.view(1, self.bias.shape[0], *rest_dim), negative_slope=self.negative_slope) * self.scale
+
+                    def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2 ** 0.5):
+                        rest_dim = [1] * (input.ndim - bias.ndim - 1)
+                        return F.leaky_relu(input + bias.view(1, bias.shape[0], *rest_dim), negative_slope=negative_slope) * scale
+
+                    def upfirdn2d_native(input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1):
+                        _, channel, in_h, in_w = input.shape
+                        input = input.reshape(-1, in_h, in_w, 1)
+                        _, in_h, in_w, minor = input.shape
+                        kernel_h, kernel_w = kernel.shape
+                        out = input.view(-1, in_h, 1, in_w, 1, minor)
+                        out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
+                        out = out.view(-1, in_h * up_y, in_w * up_x, minor)
+                        out = F.pad(out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)])
+                        out = out[:, max(-pad_y0, 0) : out.shape[1] - max(-pad_y1, 0), max(-pad_x0, 0) : out.shape[2] - max(-pad_x1, 0), :]
+                        out = out.permute(0, 3, 1, 2)
+                        out = out.reshape([-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1])
+                        w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
+                        out = F.conv2d(out, w)
+                        out = out.reshape(-1, minor, in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1, in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1)
+                        out = out.permute(0, 2, 3, 1)
+                        out = out[:, ::down_y, ::down_x, :]
+                        out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1
+                        out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1
+                        return out.view(-1, channel, out_h, out_w)
+
+                    def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
+                        return upfirdn2d_native(input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1])
+
+                    op_mod.FusedLeakyReLU = FusedLeakyReLU
+                    op_mod.fused_leaky_relu = fused_leaky_relu
+                    op_mod.upfirdn2d = upfirdn2d
+                    sys.modules["models.stylegan2.op"] = op_mod
+                    sys.modules["models.stylegan2.op.fused_act"] = op_mod
+                    sys.modules["models.stylegan2.op.upfirdn2d"] = op_mod
+                    sys.modules["pixel2style2pixel.models.stylegan2.op"] = op_mod
+                    sys.modules["pixel2style2pixel.models.stylegan2.op.fused_act"] = op_mod
+                    sys.modules["pixel2style2pixel.models.stylegan2.op.upfirdn2d"] = op_mod
+                    sys.modules["op"] = op_mod
+
+                try:
+                    from models.psp import pSp
+                except ImportError:
+                    from pixel2style2pixel.models.psp import pSp
+                from nets import F_mapping
+
+                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                psp_ckpt = torch.load(str(checkpoint), map_location="cpu")
+                opts_dict = psp_ckpt["opts"]
+                opts_dict["output_size"] = 1024
+                opts = argparse.Namespace(**opts_dict)
+                opts.checkpoint_path = str(checkpoint)
+                opts.device = device
+                lattrans_net = pSp(opts).eval().to(device)
+
+                # Locate T-Net checkpoints (recursively in checkpoints or repo)
+                tnet_files = list(Path("checkpoints/AM/LatTrans").rglob("tnet_*.pth.tar")) + list(lattrans_repo.rglob("tnet_*.pth.tar"))
+                if not tnet_files:
+                    for zf_path in list(Path("checkpoints/AM/LatTrans").glob("*.zip")) + list(lattrans_repo.glob("**/*.zip")):
+                        try:
+                            import zipfile
+                            logger.info("Extracting %s to %s...", zf_path.name, zf_path.parent)
+                            with zipfile.ZipFile(zf_path, "r") as zf:
+                                zf.extractall(zf_path.parent)
+                            tnet_files = list(Path("checkpoints/AM/LatTrans").rglob("tnet_*.pth.tar")) + list(lattrans_repo.rglob("tnet_*.pth.tar"))
+                            if tnet_files:
+                                break
+                        except Exception as ze:
+                            logger.warning("Failed to extract %s: %s", zf_path, ze)
+
+                if tnet_files:
+                    for tf in tnet_files:
+                        try:
+                            aid = int(tf.stem.split("_")[-1])
+                            if aid not in lattrans_tnets:
+                                tnet = F_mapping(mapping_lrmul=1, mapping_layers=18, mapping_fmaps=512, mapping_nonlinearity="linear")
+                                tnet.load_state_dict(torch.load(str(tf), map_location="cpu"))
+                                tnet.eval().to(device)
+                                lattrans_tnets[aid] = tnet
+                        except Exception as te:
+                            logger.debug("Failed loading T-Net %s: %s", tf, te)
+                    logger.info("Successfully loaded %d LatTrans T-Net attribute models on %s.", len(lattrans_tnets), device)
+                else:
+                    logger.warning("No T-Net checkpoints found in checkpoints/AM/LatTrans or %s.", lattrans_repo)
+
+                logger.info("Official LatTrans pipeline loaded on %s in %.2fs", device, time.time() - t_load_start)
+            except Exception as e:
+                logger.error("Failed to initialize official LatTrans model: %s", e, exc_info=True)
+                if not mock:
+                    raise RuntimeError(f"Official LatTrans initialization failed: {e}")
+                logger.warning("Falling back to mock mode for LatTrans.")
+
     # Real inference setup for IAFaces
     iafaces_netE = None
     iafaces_netG = None
@@ -542,6 +682,63 @@ def run_am_generation(
                 "real_inference": True,
                 "official_iafaces": True,
                 "attribute": cur_attribute,
+            }
+            pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
+        elif lattrans_net is not None and generator == "LatTrans":
+            from torchvision import transforms
+            device = next(lattrans_net.parameters()).device
+            t_gen_start = time.time()
+
+            attr_id_map = {
+                "smile": 31,
+                "smiling": 31,
+                "glasses": 15,
+                "eyeglasses": 15,
+                "young": 39,
+                "wavy_hair": 33,
+                "bangs": 5,
+                "blond_hair": 9,
+                "black_hair": 8,
+                "no_beard": 24,
+                "pale_skin": 26,
+                "bushy_eyebrows": 12,
+            }
+            target_aid = attr_id_map.get(cur_attribute.lower(), 31)
+
+            with torch.no_grad():
+                img_t = transforms.ToTensor()(src_pil.resize((256, 256), Image.BILINEAR)).unsqueeze(0).to(device)
+                img_t = (img_t - 0.5) / 0.5
+                codes = lattrans_net.encoder(img_t)
+                if lattrans_net.opts.start_from_latent_avg:
+                    codes = codes + lattrans_net.latent_avg.repeat(codes.shape[0], 1, 1)
+
+                if target_aid in lattrans_tnets:
+                    tnet = lattrans_tnets[target_aid]
+                    alpha = torch.tensor([1.5], device=device)
+                    w_manip = tnet(codes.view(codes.size(0), -1), alpha).view(codes.size())
+                    w_final = torch.cat((w_manip[:, :11, :], codes[:, 11:, :]), dim=1)
+                else:
+                    w_final = codes
+
+                fake_tensor, _ = lattrans_net.decoder([w_final], input_is_latent=True, randomize_noise=False)
+                fake_tensor = (fake_tensor.clamp(-1, 1) + 1.0) / 2.0
+                fake_np = (fake_tensor[0].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+
+            fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
+            fake_pil.save(fake_path, format="PNG")
+
+            gen_duration = time.time() - t_gen_start
+            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+            ram_mb = psutil.Process().memory_info().rss / (1024**2)
+
+            sample_metrics = {
+                "inference_time_sec": round(gen_duration, 3),
+                "peak_vram_mb": round(peak_vram_mb, 2),
+                "ram_mb": round(ram_mb, 2),
+                "real_inference": True,
+                "official_lattrans": True,
+                "attribute": cur_attribute,
+                "tnet_attr_id": target_aid,
             }
             pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
         elif mock or checkpoint is None or not checkpoint.exists():
