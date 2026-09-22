@@ -45,6 +45,17 @@ def _safe_torch_load(*args, **kwargs):
     return _orig_torch_load(*args, **kwargs)
 torch.load = _safe_torch_load
 
+# NumPy 2.0+ compatibility monkeypatch: restore numpy.lib.function_base for legacy repos (e.g. DiffAE)
+if "numpy.lib.function_base" not in sys.modules:
+    try:
+        import numpy.lib.function_base
+    except ImportError:
+        _fb_mod = types.ModuleType("numpy.lib.function_base")
+        _fb_mod.flip = np.flip
+        for _k in dir(np):
+            setattr(_fb_mod, _k, getattr(np, _k))
+        sys.modules["numpy.lib.function_base"] = _fb_mod
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
@@ -258,6 +269,17 @@ def run_am_generation(
 
         if str(diffae_repo_path) not in sys.path:
             sys.path.insert(0, str(diffae_repo_path))
+
+        # Ensure experiment.py does not fail on NumPy 2.0+
+        exp_py = diffae_repo_path / "experiment.py"
+        if exp_py.exists():
+            try:
+                content = exp_py.read_text(encoding="utf-8")
+                if "from numpy.lib.function_base import flip" in content:
+                    content = content.replace("from numpy.lib.function_base import flip", "from numpy import flip")
+                    exp_py.write_text(content, encoding="utf-8")
+            except Exception as pe:
+                logger.debug("Could not patch experiment.py: %s", pe)
 
         from experiment import LitModel
         from experiment_classifier import ClsModel
