@@ -177,6 +177,7 @@ def run_am_generation(
     count: int = 10,
     seed: int = 42,
     dataset_root: Path = Path("MFVLR_Dataset"),
+    output_dir: Optional[Path] = None,
     shard_id: int = 0,
     num_shards: int = 1,
     start_index: Optional[int] = None,
@@ -198,8 +199,18 @@ def run_am_generation(
             raise ValueError(f"Invalid AM generator '{generator}'. Expected one of: {sorted(list(VALID_AM_GENERATORS))}")
         generator = matched
 
-    dest_source_dir = dataset_root / "source" / "AM" / generator
-    dest_fake_dir = dataset_root / "images" / "AM" / generator
+    if output_dir is not None:
+        dest_fake_dir = Path(output_dir)
+        if "images" in dest_fake_dir.parts:
+            parts = list(dest_fake_dir.parts)
+            img_idx = len(parts) - 1 - parts[::-1].index("images")
+            parts[img_idx] = "source"
+            dest_source_dir = Path(*parts)
+        else:
+            dest_source_dir = dest_fake_dir.parent / "source" / generator
+    else:
+        dest_source_dir = dataset_root / "source" / "AM" / generator
+        dest_fake_dir = dataset_root / "images" / "AM" / generator
 
     if not dry_run:
         dest_source_dir.mkdir(parents=True, exist_ok=True)
@@ -779,13 +790,19 @@ def run_am_generation(
                     "param_count": 168492291,
                     "attribute": item["cur_attribute"],
                 }
+                try:
+                    rel_fake = item["fake_path"].relative_to(dataset_root).as_posix()
+                    rel_src = item["dest_src_file"].relative_to(dataset_root).as_posix()
+                except ValueError:
+                    rel_fake = str(item["fake_path"])
+                    rel_src = str(item["dest_src_file"])
                 record = {
                     "sample_id": item["sample_stem"],
                     "generator": generator,
                     "forgery_type": "AM",
                     "architecture": "Diffusion",
-                    "image_path": item["fake_path"].relative_to(dataset_root).as_posix(),
-                    "source_image_path": item["dest_src_file"].relative_to(dataset_root).as_posix(),
+                    "image_path": rel_fake,
+                    "source_image_path": rel_src,
                     "attribute": item["cur_attribute"],
                     "seed": item["sample_seed"],
                     "checkpoint": str(autoenc_ckpt_path),
@@ -952,13 +969,19 @@ def run_am_generation(
                 sample_metrics = {"real_inference": False}
                 pbar.set_postfix({"attr": cur_attribute, "mode": "fallback"})
 
+            try:
+                rel_fake = fake_path.relative_to(dataset_root).as_posix()
+                rel_src = dest_src_file.relative_to(dataset_root).as_posix()
+            except ValueError:
+                rel_fake = str(fake_path)
+                rel_src = str(dest_src_file)
             record = {
                 "sample_id": sample_stem,
                 "generator": generator,
                 "forgery_type": "AM",
                 "architecture": "Diffusion" if generator == "DiffAE" else "GAN",
-                "image_path": fake_path.relative_to(dataset_root).as_posix(),
-                "source_image_path": dest_src_file.relative_to(dataset_root).as_posix(),
+                "image_path": rel_fake,
+                "source_image_path": rel_src,
                 "attribute": cur_attribute,
                 "seed": sample_seed,
                 "checkpoint": str(autoenc_ckpt_path) if (diffae_model is not None and generator == "DiffAE") else (str(checkpoint) if checkpoint else "mock"),
@@ -998,7 +1021,8 @@ def main() -> int:
     parser.add_argument("--attribute", type=str, default="all", help="Manipulation attribute (default 'all' automatically cycles across all 10 attributes; or specify one: smile, glasses, young, wavy_hair, bangs, blond_hair)")
     parser.add_argument("--count", type=int, default=10, help="Number of images to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--dataset-root", type=str, default="MFVLR_Dataset", help="Root directory of MFVLR dataset")
+    parser.add_argument("--dataset-root", "--output-root", type=str, default="MFVLR_Dataset", help="Root directory of MFVLR dataset (default: MFVLR_Dataset)")
+    parser.add_argument("--output-dir", "--dest-dir", type=str, default=None, help="Explicit destination directory for generated fake images (overrides dataset-root/images/AM/<generator>)")
     parser.add_argument("--shard-id", type=int, default=0, help="Shard index")
     parser.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
     parser.add_argument("--start-index", type=int, default=None, help="Explicit start index")
@@ -1020,6 +1044,7 @@ def main() -> int:
             count=args.count,
             seed=args.seed,
             dataset_root=Path(args.dataset_root),
+            output_dir=Path(args.output_dir) if args.output_dir else None,
             shard_id=args.shard_id,
             num_shards=args.num_shards,
             start_index=args.start_index,
