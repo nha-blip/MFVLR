@@ -98,6 +98,7 @@ def run_efs_generation(
     steps: int = 50,
     mock: bool = False,
     dry_run: bool = False,
+    force: bool = False,
 ) -> List[Dict[str, Any]]:
     """Runs EFS generation with deterministic indexing and provenance recording."""
     if generator not in VALID_EFS_GENERATORS:
@@ -119,6 +120,42 @@ def run_efs_generation(
         all_indices = list(range(count))
         indices = [idx for idx in all_indices if idx % num_shards == shard_id]
 
+    parts_lower = [p.lower() for p in out_dir.parts]
+    if generator.lower() not in parts_lower and "efs" not in parts_lower:
+        gen_out_dir = out_dir / "images" / "EFS" / generator
+    elif generator.lower() not in parts_lower:
+        gen_out_dir = out_dir / generator
+    else:
+        gen_out_dir = out_dir
+
+    if not dry_run:
+        gen_out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Ultra-fast pre-scan existing files for Smart Resume (only when force=False)
+    if not force and gen_out_dir.exists():
+        try:
+            existing_filenames = set(os.listdir(str(gen_out_dir)))
+            pending_indices = []
+            for idx in indices:
+                sample_stem = f"{generator.lower()}_{idx:06d}.png"
+                if sample_stem not in existing_filenames:
+                    pending_indices.append(idx)
+            existing_count = len(indices) - len(pending_indices)
+            if existing_count > 0:
+                logger.info(
+                    "Smart Resume: Found %d existing samples in %s. Skipping them and generating remaining %d/%d...",
+                    existing_count,
+                    gen_out_dir,
+                    len(pending_indices),
+                    len(indices),
+                )
+                indices = pending_indices
+                if not indices:
+                    logger.info("All requested samples already exist in %s. Generation complete!", gen_out_dir)
+                    return []
+        except Exception as se:
+            logger.debug("Pre-scan failed: %s", se)
+
     logger.info(
         "Starting EFS generation for [%s]: %d samples (shard %d/%d, seed=%d)",
         generator,
@@ -127,10 +164,6 @@ def run_efs_generation(
         num_shards,
         seed,
     )
-
-    gen_out_dir = out_dir / generator
-    if not dry_run:
-        gen_out_dir.mkdir(parents=True, exist_ok=True)
 
     generated_records: List[Dict[str, Any]] = []
 
@@ -377,7 +410,7 @@ def run_efs_generation(
         if dry_run:
             logger.info("[DRY-RUN] Would generate %s -> %s (seed=%d)", generator, file_path, seed + idx)
             continue
-        if file_path.exists() and file_path.stat().st_size > 0:
+        if not force and file_path.exists() and file_path.stat().st_size > 0:
             logger.debug("File %s exists, skipping.", filename)
             continue
         pending_indices.append(idx)
@@ -745,7 +778,7 @@ def main() -> int:
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to generator model checkpoint")
     parser.add_argument("--count", type=int, default=10, help="Total number of images to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--out-dir", type=str, default="MFVLR_Dataset/images/EFS", help="Output directory for generated images")
+    parser.add_argument("--out-dir", "--output-dir", "--dest-dir", dest="out_dir", type=str, default="MFVLR_Dataset/images/EFS", help="Output directory for generated images")
     parser.add_argument("--shard-id", type=int, default=0, help="Shard index for parallel cluster jobs")
     parser.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
     parser.add_argument("--start-index", type=int, default=None, help="Explicit start index (overrides sharding)")
@@ -756,6 +789,7 @@ def main() -> int:
     parser.add_argument("--steps", type=int, default=50, help="Number of diffusion inference steps (default: 50, use 25 for 2x speedup)")
     parser.add_argument("--mock", action="store_true", help="Generate synthetic mock samples without checkpoint")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without generating files")
+    parser.add_argument("--force", action="store_true", help="Force re-generation even if output images already exist")
 
     args = parser.parse_args()
 
@@ -775,6 +809,7 @@ def main() -> int:
             steps=args.steps,
             mock=args.mock,
             dry_run=args.dry_run,
+            force=args.force,
         )
         return 0
     except Exception as e:

@@ -92,6 +92,7 @@ def run_fs_generation(
     count: int = 10,
     seed: int = 42,
     dataset_root: Path = Path("MFVLR_Dataset"),
+    output_dir: Optional[Path] = None,
     shard_id: int = 0,
     num_shards: int = 1,
     start_index: Optional[int] = None,
@@ -111,9 +112,27 @@ def run_fs_generation(
             raise ValueError(f"Invalid FS generator '{generator}'. Expected one of: {sorted(list(VALID_FS_GENERATORS))}")
         generator = matched
 
-    dest_source_dir = dataset_root / "source" / "FS" / generator
-    dest_target_dir = dataset_root / "target" / "FS" / generator
-    dest_fake_dir = dataset_root / "images" / "FS" / generator
+    if output_dir is not None:
+        dest_fake_dir = Path(output_dir)
+        parts_lower = [p.lower() for p in dest_fake_dir.parts]
+        if generator.lower() not in parts_lower and "fs" not in parts_lower:
+            dest_fake_dir = dest_fake_dir / "images" / "FS" / generator
+            dest_source_dir = dest_fake_dir.parent.parent.parent / "source" / "FS" / generator
+            dest_target_dir = dest_fake_dir.parent.parent.parent / "target" / "FS" / generator
+        elif "images" in dest_fake_dir.parts:
+            parts = list(dest_fake_dir.parts)
+            img_idx = len(parts) - 1 - parts[::-1].index("images")
+            parts[img_idx] = "source"
+            dest_source_dir = Path(*parts)
+            parts[img_idx] = "target"
+            dest_target_dir = Path(*parts)
+        else:
+            dest_source_dir = dest_fake_dir.parent / "source" / generator
+            dest_target_dir = dest_fake_dir.parent / "target" / generator
+    else:
+        dest_source_dir = dataset_root / "source" / "FS" / generator
+        dest_target_dir = dataset_root / "target" / "FS" / generator
+        dest_fake_dir = dataset_root / "images" / "FS" / generator
 
     if not dry_run:
         dest_source_dir.mkdir(parents=True, exist_ok=True)
@@ -180,10 +199,36 @@ def run_fs_generation(
 
     # Calculate index range
     if start_index is not None and end_index is not None:
-        indices = list(range(start_index, min(end_index, len(available_sources))))
+        indices = list(range(start_index, end_index))
     else:
-        total = min(count, len(available_sources))
-        indices = [idx for idx in range(total) if idx % num_shards == shard_id]
+        indices = [idx for idx in range(count) if idx % num_shards == shard_id]
+
+    total_target = len(indices)
+
+    # Ultra-fast pre-scan existing files for Smart Resume (only when force=False)
+    if not force and dest_fake_dir.exists():
+        try:
+            existing_filenames = set(os.listdir(str(dest_fake_dir)))
+            pending_indices = []
+            for idx in indices:
+                sample_stem = f"{generator.lower()}_{idx:06d}.png"
+                if sample_stem not in existing_filenames:
+                    pending_indices.append(idx)
+            existing_count = total_target - len(pending_indices)
+            if existing_count > 0:
+                logger.info(
+                    "Smart Resume: Found %d existing samples in %s. Skipping them and generating remaining %d/%d...",
+                    existing_count,
+                    dest_fake_dir,
+                    len(pending_indices),
+                    total_target,
+                )
+                indices = pending_indices
+                if not indices:
+                    logger.info("All %d requested samples already exist in %s. Generation complete!", total_target, dest_fake_dir)
+                    return []
+        except Exception as se:
+            logger.debug("Pre-scan failed: %s", se)
 
     logger.info(
         "Starting FS generation for [%s]: %d samples (shard %d/%d)",
@@ -369,7 +414,8 @@ def main() -> int:
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to generator model checkpoint")
     parser.add_argument("--count", type=int, default=10, help="Number of images to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--dataset-root", type=str, default="MFVLR_Dataset", help="Root directory of MFVLR dataset")
+    parser.add_argument("--dataset-root", "--output-root", type=str, default="MFVLR_Dataset", help="Root directory of MFVLR dataset")
+    parser.add_argument("--output-dir", "--dest-dir", type=str, default=None, help="Explicit destination directory for generated fake images")
     parser.add_argument("--shard-id", type=int, default=0, help="Shard index")
     parser.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
     parser.add_argument("--start-index", type=int, default=None, help="Explicit start index")
@@ -389,6 +435,7 @@ def main() -> int:
             count=args.count,
             seed=args.seed,
             dataset_root=Path(args.dataset_root),
+            output_dir=Path(args.output_dir) if args.output_dir else None,
             shard_id=args.shard_id,
             num_shards=args.num_shards,
             start_index=args.start_index,
