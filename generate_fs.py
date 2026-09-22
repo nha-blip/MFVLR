@@ -365,6 +365,15 @@ def run_fs_generation(
             sample_metrics = {"real_inference": False}
             pbar.set_postfix({"mode": "fallback"})
 
+        try:
+            rel_fake = fake_path.relative_to(dataset_root).as_posix()
+            rel_src = dest_src_file.relative_to(dataset_root).as_posix()
+            rel_tgt = dest_tgt_file.relative_to(dataset_root).as_posix()
+        except ValueError:
+            rel_fake = fake_path.as_posix()
+            rel_src = dest_src_file.as_posix()
+            rel_tgt = dest_tgt_file.as_posix()
+
         record = {
             "sample_id": sample_stem,
             "source_id": src_path.stem,
@@ -373,9 +382,9 @@ def run_fs_generation(
             "generator": generator,
             "forgery_type": "FS",
             "architecture": "Diffusion" if generator == "DiffFace" else "GAN",
-            "image_path": fake_path.relative_to(dataset_root).as_posix(),
-            "source_image_path": dest_src_file.relative_to(dataset_root).as_posix(),
-            "target_image_path": dest_tgt_file.relative_to(dataset_root).as_posix(),
+            "image_path": rel_fake,
+            "source_image_path": rel_src,
+            "target_image_path": rel_tgt,
             "seed": sample_seed,
             "checkpoint": "google/ddpm-celebahq-256" if (pipe is not None and generator == "DiffFace") else (str(checkpoint) if checkpoint else "mock"),
             "shard_id": shard_id,
