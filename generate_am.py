@@ -179,6 +179,8 @@ def run_am_generation(
     num_shards: int = 1,
     start_index: Optional[int] = None,
     end_index: Optional[int] = None,
+    steps: int = 50,
+    batch_size: int = 1,
     mock: bool = False,
     dry_run: bool = False,
     force: bool = False,
@@ -383,6 +385,8 @@ def run_am_generation(
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
         diffae_model.ema_model.to(device)
         diffae_cls_model.to(device)
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = True
 
         autoenc_sha256 = "9bd2ba9e4c22afde8f18958026a4e8e625ef67d2c3ee76bb3aa72f3e67d3b9ca"
         cls_sha256 = "a83381098ec856ee07acfc0fed2d99f5d039c532b48ba43aef800eaca3731134"
@@ -650,83 +654,56 @@ def run_am_generation(
 
     generated_records: List[Dict[str, Any]] = []
 
-    from tqdm import tqdm
-    pbar = tqdm(indices, desc=f"Generating {generator}")
-    for idx in pbar:
-        sample_seed = seed + idx
-        src_path = available_sources[idx]
-        sample_stem = f"{generator.lower()}_{idx:06d}"
-        fake_filename = f"{sample_stem}.png"
-        fake_path = dest_fake_dir / fake_filename
-        dest_src_file = dest_source_dir / fake_filename
+    if diffae_model is not None and diffae_cls_model is not None and generator == "DiffAE":
+        import torchvision.transforms.functional as Ftrans
+        from dataset import CelebAttrDataset
 
-        # Smart resume: if fake already exists, skip IMMEDIATELY to avoid slow disk I/O (unless force=True)
-        if not force and fake_path.exists() and fake_path.stat().st_size > 0:
-            continue
+        attr_map = {
+            "smile": "Smiling",
+            "smiling": "Smiling",
+            "glasses": "Eyeglasses",
+            "eyeglasses": "Eyeglasses",
+            "wavy_hair": "Wavy_Hair",
+            "young": "Young",
+            "bangs": "Bangs",
+            "male": "Male",
+            "blond_hair": "Blond_Hair",
+            "black_hair": "Black_Hair",
+            "no_beard": "No_Beard",
+            "pale_skin": "Pale_Skin",
+            "bushy_eyebrows": "Bushy_Eyebrows",
+        }
 
-        # If attribute is 'all', 'mixed', 'auto', or None, automatically cycle through all attributes
-        if attribute is None or attribute.lower() in {"all", "mixed", "auto", "any"}:
-            cur_attribute = AVAILABLE_ATTRIBUTES[idx % len(AVAILABLE_ATTRIBUTES)]
-        else:
-            cur_attribute = attribute
+        # Chunk indices into batches
+        eff_batch_size = max(1, batch_size)
+        index_chunks = [indices[i : i + eff_batch_size] for i in range(0, len(indices), eff_batch_size)]
+        pbar = tqdm(total=len(indices), desc=f"Generating {generator} (bs={eff_batch_size}, steps={steps})")
 
-        # Ensure source image is in dest_source_dir
-        if not dry_run and not dest_src_file.exists():
-            from PIL import Image
-            with Image.open(src_path) as s_img:
-                s_resized = s_img.convert("RGB").resize((224, 224), Image.BILINEAR)
-                s_resized.save(dest_src_file, format="PNG")
+        for chunk in index_chunks:
+            batch_items = []
+            for idx in chunk:
+                sample_seed = seed + idx
+                sample_stem = f"{generator.lower()}_{idx:06d}"
+                fake_filename = f"{sample_stem}.png"
+                fake_path = dest_fake_dir / fake_filename
+                dest_src_file = dest_source_dir / fake_filename
 
-        if dry_run:
-            logger.info("[DRY-RUN] Would generate AM fake %s -> %s from source %s", generator, fake_path, dest_src_file)
-            continue
+                if not force and fake_path.exists() and fake_path.stat().st_size > 0:
+                    pbar.update(1)
+                    continue
 
-        from PIL import Image
-        with Image.open(dest_src_file) as s_img:
-            src_pil = s_img.convert("RGB")
-        src_np = np.array(src_pil)
+                src_path = available_sources[idx]
+                if not dry_run and not dest_src_file.exists():
+                    from PIL import Image
+                    with Image.open(src_path) as s_img:
+                        s_resized = s_img.convert("RGB").resize((224, 224), Image.BILINEAR)
+                        s_resized.save(dest_src_file, format="PNG")
 
-        sample_metrics = {}
-        if diffae_model is not None and diffae_cls_model is not None and generator == "DiffAE":
-            import torchvision.transforms.functional as Ftrans
-            from dataset import CelebAttrDataset
+                if attribute is None or attribute.lower() in {"all", "mixed", "auto", "any"}:
+                    cur_attribute = AVAILABLE_ATTRIBUTES[idx % len(AVAILABLE_ATTRIBUTES)]
+                else:
+                    cur_attribute = attribute
 
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
-            t_gen_start = time.time()
-
-            # Set deterministic seed for PyTorch
-            torch.manual_seed(sample_seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed(sample_seed)
-
-            # Prepare normalized tensor [1, 3, 256, 256] in [-1, 1]
-            img_tensor = Ftrans.to_tensor(src_pil.resize((256, 256), Image.BILINEAR)) * 2 - 1
-            batch = img_tensor.unsqueeze(0).to(device)
-
-            with torch.no_grad():
-                # 1. Encode semantic latent vector z_sem in R^512
-                cond = diffae_model.encode(batch)
-
-                # 2. Stochastic inversion (DDIM reverse process to recover xT)
-                xT = diffae_model.encode_stochastic(batch, cond, T=250)
-
-                # 3. Attribute manipulation along linear classifier hyperplane
-                attr_map = {
-                    "smile": "Smiling",
-                    "smiling": "Smiling",
-                    "glasses": "Eyeglasses",
-                    "eyeglasses": "Eyeglasses",
-                    "wavy_hair": "Wavy_Hair",
-                    "young": "Young",
-                    "bangs": "Bangs",
-                    "male": "Male",
-                    "blond_hair": "Blond_Hair",
-                    "black_hair": "Black_Hair",
-                    "no_beard": "No_Beard",
-                    "pale_skin": "Pale_Skin",
-                    "bushy_eyebrows": "Bushy_Eyebrows",
-                }
                 celeb_attr = attr_map.get(cur_attribute.lower(), None)
                 if celeb_attr is None:
                     for k in CelebAttrDataset.cls_to_id.keys():
@@ -737,175 +714,263 @@ def run_am_generation(
                     celeb_attr = "Smiling"
                 cls_id = CelebAttrDataset.cls_to_id[celeb_attr]
 
+                batch_items.append({
+                    "idx": idx,
+                    "sample_seed": sample_seed,
+                    "sample_stem": sample_stem,
+                    "fake_path": fake_path,
+                    "dest_src_file": dest_src_file,
+                    "cur_attribute": cur_attribute,
+                    "celeb_attr": celeb_attr,
+                    "cls_id": cls_id,
+                })
+
+            if not batch_items:
+                continue
+
+            if dry_run:
+                for item in batch_items:
+                    logger.info("[DRY-RUN] Would generate AM fake %s -> %s", generator, item["fake_path"])
+                    pbar.update(1)
+                continue
+
+            t_gen_start = time.time()
+            from PIL import Image
+            tensor_list = []
+            for item in batch_items:
+                with Image.open(item["dest_src_file"]) as s_img:
+                    src_pil = s_img.convert("RGB")
+                img_tensor = Ftrans.to_tensor(src_pil.resize((256, 256), Image.BILINEAR)) * 2 - 1
+                tensor_list.append(img_tensor)
+
+            batch = torch.stack(tensor_list).to(device)
+
+            with torch.no_grad():
+                cond = diffae_model.encode(batch)
+                xT = diffae_model.encode_stochastic(batch, cond, T=steps)
                 cond_norm = diffae_cls_model.normalize(cond)
-                w = diffae_cls_model.classifier.weight[cls_id][None, :]
+                w = torch.stack([diffae_cls_model.classifier.weight[item["cls_id"]] for item in batch_items]).to(device)
                 direction = torch.nn.functional.normalize(w, dim=1)
-                alpha = 0.35  # Manipulation intensity
+                alpha = 0.35
                 cond_manip = cond_norm + alpha * math.sqrt(512) * direction
                 cond_manip = diffae_cls_model.denormalize(cond_manip)
+                pred = diffae_model.render(xT, cond_manip, T=steps)
 
-                # 4. Render manipulated face from (xT, cond_manip)
-                pred = diffae_model.render(xT, cond_manip, T=100)
-
-            gen_duration = time.time() - t_gen_start
-
-            # pred is [1, 3, 256, 256] in range [0, 1]
-            fake_np = (pred.squeeze(0).permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).round().astype(np.uint8)
-            fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
-            fake_pil.save(fake_path, format="PNG")
-
+            gen_duration = (time.time() - t_gen_start) / len(batch_items)
             peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
             ram_mb = psutil.Process().memory_info().rss / (1024**2)
 
-            sample_metrics = {
-                "inference_time_sec": round(gen_duration, 3),
-                "peak_vram_mb": round(peak_vram_mb, 2),
-                "ram_mb": round(ram_mb, 2),
-                "real_inference": True,
-                "official_diffae": True,
-                "model_class": "BeatGANsAutoencModel",
-                "checkpoint_autoenc": str(autoenc_ckpt_path),
-                "checkpoint_cls": str(cls_ckpt_path),
-                "checkpoint_sha256": autoenc_sha256,
-                "param_count": 168492291,
-                "attribute_manipulation_method": f"Latent hyperplane shift along CelebA classifier weight ({celeb_attr}) with DDIM stochastic inversion",
-            }
-            pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
-        elif iafaces_netE is not None and iafaces_netG is not None and generator == "IAFaces":
-            device = next(iafaces_netE.parameters()).device
-            t_gen_start = time.time()
+            for b_i, item in enumerate(batch_items):
+                fake_np = (pred[b_i].permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).round().astype(np.uint8)
+                fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
+                fake_pil.save(item["fake_path"], format="PNG")
 
-            src_tensor = torch.from_numpy(src_np).permute(2, 0, 1).unsqueeze(0).float() / 127.5 - 1.0
-            src_tensor = F.interpolate(src_tensor, (256, 256), mode="bilinear").to(device)
+                sample_metrics = {
+                    "inference_time_sec": round(gen_duration, 3),
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "real_inference": True,
+                    "official_diffae": True,
+                    "steps": steps,
+                    "batch_size": len(batch_items),
+                    "model_class": "BeatGANsAutoencModel",
+                    "checkpoint_autoenc": str(autoenc_ckpt_path),
+                    "checkpoint_cls": str(cls_ckpt_path),
+                    "checkpoint_sha256": autoenc_sha256,
+                    "param_count": 168492291,
+                    "attribute": item["cur_attribute"],
+                }
+                record = {
+                    "sample_id": item["sample_stem"],
+                    "generator": generator,
+                    "forgery_type": "AM",
+                    "architecture": "Diffusion",
+                    "image_path": item["fake_path"].relative_to(dataset_root).as_posix(),
+                    "source_image_path": item["dest_src_file"].relative_to(dataset_root).as_posix(),
+                    "attribute": item["cur_attribute"],
+                    "seed": item["sample_seed"],
+                    "checkpoint": str(autoenc_ckpt_path),
+                    "shard_id": shard_id,
+                    "index": item["idx"],
+                    "metrics": sample_metrics,
+                }
+                generated_records.append(record)
+                pbar.update(1)
 
-            ref_idx = (idx + 7) % len(available_sources)
-            with Image.open(available_sources[ref_idx]) as r_img:
-                ref_np = np.array(r_img.convert("RGB"))
-            ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1).unsqueeze(0).float() / 127.5 - 1.0
-            ref_tensor = F.interpolate(ref_tensor, (256, 256), mode="bilinear").to(device)
+            pbar.set_postfix({"sec/img": f"{gen_duration:.2f}", "bs": len(batch_items)})
+    else:
+        from tqdm import tqdm
+        pbar = tqdm(indices, desc=f"Generating {generator}")
+        for idx in pbar:
+            sample_seed = seed + idx
+            src_path = available_sources[idx]
+            sample_stem = f"{generator.lower()}_{idx:06d}"
+            fake_filename = f"{sample_stem}.png"
+            fake_path = dest_fake_dir / fake_filename
+            dest_src_file = dest_source_dir / fake_filename
 
-            comp_map = {
-                "smile": [3],
-                "glasses": [0, 1],
-                "young": [0, 1, 2, 3],
-                "wavy_hair": [0, 1],
-                "bangs": [0, 1],
-                "blond_hair": [0, 1],
-                "black_hair": [0, 1],
-                "no_beard": [3],
-                "pale_skin": [2],
-                "bushy_eyebrows": [0, 1],
-            }
-            comp_indices = comp_map.get(cur_attribute.lower(), [3])
+            # Smart resume: if fake already exists, skip IMMEDIATELY to avoid slow disk I/O (unless force=True)
+            if not force and fake_path.exists() and fake_path.stat().st_size > 0:
+                continue
 
-            with torch.no_grad():
-                src_face, src_nodes = iafaces_netE(src_tensor)
-                _, ref_nodes = iafaces_netE(ref_tensor)
+            # If attribute is 'all', 'mixed', 'auto', or None, automatically cycle through all attributes
+            if attribute is None or attribute.lower() in {"all", "mixed", "auto", "any"}:
+                cur_attribute = AVAILABLE_ATTRIBUTES[idx % len(AVAILABLE_ATTRIBUTES)]
+            else:
+                cur_attribute = attribute
 
-                manip_nodes = src_nodes.clone()
-                manip_nodes[:, comp_indices, :] = ref_nodes[:, comp_indices, :]
-                fake_tensor = iafaces_netG(src_face, manip_nodes, randomize_noise=False)
+            # Ensure source image is in dest_source_dir
+            if not dry_run and not dest_src_file.exists():
+                from PIL import Image
+                with Image.open(src_path) as s_img:
+                    s_resized = s_img.convert("RGB").resize((224, 224), Image.BILINEAR)
+                    s_resized.save(dest_src_file, format="PNG")
 
-            fake_np = ((fake_tensor[0].permute(1, 2, 0).clamp(-1, 1).cpu().numpy() + 1.0) / 2.0 * 255.0).astype(np.uint8)
-            fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
-            fake_pil.save(fake_path, format="PNG")
+            if dry_run:
+                logger.info("[DRY-RUN] Would generate AM fake %s -> %s from source %s", generator, fake_path, dest_src_file)
+                continue
 
-            gen_duration = time.time() - t_gen_start
-            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
-            ram_mb = psutil.Process().memory_info().rss / (1024**2)
+            from PIL import Image
+            with Image.open(dest_src_file) as s_img:
+                src_pil = s_img.convert("RGB")
+            src_np = np.array(src_pil)
 
-            sample_metrics = {
-                "inference_time_sec": round(gen_duration, 3),
-                "peak_vram_mb": round(peak_vram_mb, 2),
-                "ram_mb": round(ram_mb, 2),
-                "real_inference": True,
-                "official_iafaces": True,
+            sample_metrics = {}
+            if iafaces_netE is not None and iafaces_netG is not None and generator == "IAFaces":
+                device = next(iafaces_netE.parameters()).device
+                t_gen_start = time.time()
+
+                src_tensor = torch.from_numpy(src_np).permute(2, 0, 1).unsqueeze(0).float() / 127.5 - 1.0
+                src_tensor = F.interpolate(src_tensor, (256, 256), mode="bilinear").to(device)
+
+                ref_idx = (idx + 7) % len(available_sources)
+                with Image.open(available_sources[ref_idx]) as r_img:
+                    ref_np = np.array(r_img.convert("RGB"))
+                ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1).unsqueeze(0).float() / 127.5 - 1.0
+                ref_tensor = F.interpolate(ref_tensor, (256, 256), mode="bilinear").to(device)
+
+                comp_map = {
+                    "smile": [3],
+                    "glasses": [0, 1],
+                    "young": [0, 1, 2, 3],
+                    "wavy_hair": [0, 1],
+                    "bangs": [0, 1],
+                    "blond_hair": [0, 1],
+                    "black_hair": [0, 1],
+                    "no_beard": [3],
+                    "pale_skin": [2],
+                    "bushy_eyebrows": [0, 1],
+                }
+                comp_indices = comp_map.get(cur_attribute.lower(), [3])
+
+                with torch.no_grad():
+                    src_face, src_nodes = iafaces_netE(src_tensor)
+                    _, ref_nodes = iafaces_netE(ref_tensor)
+
+                    manip_nodes = src_nodes.clone()
+                    manip_nodes[:, comp_indices, :] = ref_nodes[:, comp_indices, :]
+                    fake_tensor = iafaces_netG(src_face, manip_nodes, randomize_noise=False)
+
+                fake_np = ((fake_tensor[0].permute(1, 2, 0).clamp(-1, 1).cpu().numpy() + 1.0) / 2.0 * 255.0).astype(np.uint8)
+                fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
+                fake_pil.save(fake_path, format="PNG")
+
+                gen_duration = time.time() - t_gen_start
+                peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+                ram_mb = psutil.Process().memory_info().rss / (1024**2)
+
+                sample_metrics = {
+                    "inference_time_sec": round(gen_duration, 3),
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "real_inference": True,
+                    "official_iafaces": True,
+                    "attribute": cur_attribute,
+                }
+                pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
+            elif lattrans_net is not None and generator == "LatTrans":
+                from torchvision import transforms
+                device = next(lattrans_net.parameters()).device
+                t_gen_start = time.time()
+
+                attr_id_map = {
+                    "smile": 31,
+                    "smiling": 31,
+                    "glasses": 15,
+                    "eyeglasses": 15,
+                    "young": 39,
+                    "wavy_hair": 33,
+                    "bangs": 5,
+                    "blond_hair": 9,
+                    "black_hair": 8,
+                    "no_beard": 24,
+                    "pale_skin": 26,
+                    "bushy_eyebrows": 12,
+                }
+                target_aid = attr_id_map.get(cur_attribute.lower(), 31)
+
+                with torch.no_grad():
+                    img_t = transforms.ToTensor()(src_pil.resize((256, 256), Image.BILINEAR)).unsqueeze(0).to(device)
+                    img_t = (img_t - 0.5) / 0.5
+                    codes = lattrans_net.encoder(img_t)
+                    if lattrans_net.opts.start_from_latent_avg:
+                        codes = codes + lattrans_net.latent_avg.repeat(codes.shape[0], 1, 1)
+
+                    if target_aid in lattrans_tnets:
+                        tnet = lattrans_tnets[target_aid]
+                        alpha = torch.tensor([1.5], device=device)
+                        w_manip = tnet(codes.view(codes.size(0), -1), alpha).view(codes.size())
+                        w_final = torch.cat((w_manip[:, :11, :], codes[:, 11:, :]), dim=1)
+                    else:
+                        w_final = codes
+
+                    fake_tensor, _ = lattrans_net.decoder([w_final], input_is_latent=True, randomize_noise=False)
+                    fake_tensor = (fake_tensor.clamp(-1, 1) + 1.0) / 2.0
+                    fake_np = (fake_tensor[0].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+
+                fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
+                fake_pil.save(fake_path, format="PNG")
+
+                gen_duration = time.time() - t_gen_start
+                peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+                ram_mb = psutil.Process().memory_info().rss / (1024**2)
+
+                sample_metrics = {
+                    "inference_time_sec": round(gen_duration, 3),
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "real_inference": True,
+                    "official_lattrans": True,
+                    "attribute": cur_attribute,
+                    "tnet_attr_id": target_aid,
+                }
+                pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
+            elif mock or checkpoint is None or not checkpoint.exists():
+                fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
+                Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
+                sample_metrics = {"real_inference": False, "note": "mock"}
+                pbar.set_postfix({"attr": cur_attribute, "mode": "mock"})
+            else:
+                fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
+                Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
+                sample_metrics = {"real_inference": False}
+                pbar.set_postfix({"attr": cur_attribute, "mode": "fallback"})
+
+            record = {
+                "sample_id": sample_stem,
+                "generator": generator,
+                "forgery_type": "AM",
+                "architecture": "Diffusion" if generator == "DiffAE" else "GAN",
+                "image_path": fake_path.relative_to(dataset_root).as_posix(),
+                "source_image_path": dest_src_file.relative_to(dataset_root).as_posix(),
                 "attribute": cur_attribute,
+                "seed": sample_seed,
+                "checkpoint": str(autoenc_ckpt_path) if (diffae_model is not None and generator == "DiffAE") else (str(checkpoint) if checkpoint else "mock"),
+                "shard_id": shard_id,
+                "index": idx,
+                "metrics": sample_metrics,
             }
-            pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
-        elif lattrans_net is not None and generator == "LatTrans":
-            from torchvision import transforms
-            device = next(lattrans_net.parameters()).device
-            t_gen_start = time.time()
-
-            attr_id_map = {
-                "smile": 31,
-                "smiling": 31,
-                "glasses": 15,
-                "eyeglasses": 15,
-                "young": 39,
-                "wavy_hair": 33,
-                "bangs": 5,
-                "blond_hair": 9,
-                "black_hair": 8,
-                "no_beard": 24,
-                "pale_skin": 26,
-                "bushy_eyebrows": 12,
-            }
-            target_aid = attr_id_map.get(cur_attribute.lower(), 31)
-
-            with torch.no_grad():
-                img_t = transforms.ToTensor()(src_pil.resize((256, 256), Image.BILINEAR)).unsqueeze(0).to(device)
-                img_t = (img_t - 0.5) / 0.5
-                codes = lattrans_net.encoder(img_t)
-                if lattrans_net.opts.start_from_latent_avg:
-                    codes = codes + lattrans_net.latent_avg.repeat(codes.shape[0], 1, 1)
-
-                if target_aid in lattrans_tnets:
-                    tnet = lattrans_tnets[target_aid]
-                    alpha = torch.tensor([1.5], device=device)
-                    w_manip = tnet(codes.view(codes.size(0), -1), alpha).view(codes.size())
-                    w_final = torch.cat((w_manip[:, :11, :], codes[:, 11:, :]), dim=1)
-                else:
-                    w_final = codes
-
-                fake_tensor, _ = lattrans_net.decoder([w_final], input_is_latent=True, randomize_noise=False)
-                fake_tensor = (fake_tensor.clamp(-1, 1) + 1.0) / 2.0
-                fake_np = (fake_tensor[0].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
-
-            fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
-            fake_pil.save(fake_path, format="PNG")
-
-            gen_duration = time.time() - t_gen_start
-            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
-            ram_mb = psutil.Process().memory_info().rss / (1024**2)
-
-            sample_metrics = {
-                "inference_time_sec": round(gen_duration, 3),
-                "peak_vram_mb": round(peak_vram_mb, 2),
-                "ram_mb": round(ram_mb, 2),
-                "real_inference": True,
-                "official_lattrans": True,
-                "attribute": cur_attribute,
-                "tnet_attr_id": target_aid,
-            }
-            pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
-        elif mock or checkpoint is None or not checkpoint.exists():
-            fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
-            Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
-            sample_metrics = {"real_inference": False, "note": "mock"}
-            pbar.set_postfix({"attr": cur_attribute, "mode": "mock"})
-        else:
-            fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
-            Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
-            sample_metrics = {"real_inference": False}
-            pbar.set_postfix({"attr": cur_attribute, "mode": "fallback"})
-
-        record = {
-            "sample_id": sample_stem,
-            "generator": generator,
-            "forgery_type": "AM",
-            "architecture": "Diffusion" if generator == "DiffAE" else "GAN",
-            "image_path": fake_path.relative_to(dataset_root).as_posix(),
-            "source_image_path": dest_src_file.relative_to(dataset_root).as_posix(),
-            "attribute": cur_attribute,
-            "seed": sample_seed,
-            "checkpoint": str(autoenc_ckpt_path) if (diffae_model is not None and generator == "DiffAE") else (str(checkpoint) if checkpoint else "mock"),
-            "shard_id": shard_id,
-            "index": idx,
-            "metrics": sample_metrics,
-        }
-        generated_records.append(record)
+            generated_records.append(record)
 
     if not dry_run and generated_records:
         prov_file = dest_fake_dir / f"provenance_shard_{shard_id}.json"
@@ -943,7 +1008,9 @@ def main() -> int:
     parser.add_argument("--start-index", type=int, default=None, help="Explicit start index")
     parser.add_argument("--end-index", type=int, default=None, help="Explicit end index")
     parser.add_argument("--mock", action="store_true", help="Run in mock mode without heavy checkpoints")
-    parser.add_argument("--dry-run", action="store_true", help="Print plan without generating files")
+    parser.add_argument("--dry-run", action="store_true", help="Perform a dry run without modifying files")
+    parser.add_argument("--steps", type=int, default=50, help="Number of diffusion steps for DiffAE (default: 50, use 25 for ultra-fast generation)")
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for DiffAE generation (recommended: 2 or 4 on Colab GPU)")
     parser.add_argument("--force", action="store_true", help="Force re-generation even if output images already exist")
 
     args = parser.parse_args()
@@ -961,6 +1028,8 @@ def main() -> int:
             num_shards=args.num_shards,
             start_index=args.start_index,
             end_index=args.end_index,
+            steps=args.steps,
+            batch_size=args.batch_size,
             mock=args.mock,
             dry_run=args.dry_run,
             force=args.force,
