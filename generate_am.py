@@ -245,14 +245,64 @@ def run_am_generation(
             state_cls.get("global_step"),
         )
 
+    # Real inference setup for IAFaces
+    iafaces_netE = None
+    iafaces_netG = None
+    if not mock and not dry_run and generator == "IAFaces":
+        import time
+        if checkpoint is None or not Path(checkpoint).exists():
+            default_iafaces = Path("checkpoints/AM/IAFaces/iafaces-celebahq-256.pth")
+            if default_iafaces.exists():
+                checkpoint = default_iafaces
+
+        if checkpoint is None or not Path(checkpoint).exists():
+            logger.warning("IAFaces checkpoint not found at %s. Falling back to mock.", checkpoint)
+        else:
+            logger.info("Initializing official IAFaces model from %s...", checkpoint)
+            t_load_start = time.time()
+            iafaces_dir = Path(__file__).resolve().parent / "external" / "IA-FaceS" / "iafaces-eval"
+            if not iafaces_dir.exists():
+                import subprocess
+                logger.info("Cloning IA-FaceS repository into %s...", iafaces_dir.parent)
+                subprocess.run(["git", "clone", "https://github.com/CMACH508/IA-FaceS.git", str(iafaces_dir.parent)], check=True)
+
+            if str(iafaces_dir) not in sys.path:
+                sys.path.insert(0, str(iafaces_dir))
+
+            try:
+                from importlib import import_module
+                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+                ckpt = torch.load(str(checkpoint), map_location="cpu")
+                cfg_dict = ckpt["config"].config if hasattr(ckpt["config"], "config") else ckpt["config"]
+                arch = cfg_dict["model_arch"]
+                model_arch = import_module("model." + arch)
+
+                iafaces_netE = model_arch.Encoder(**cfg_dict["encoder"]["args"])
+                iafaces_netG = model_arch.Generator(**cfg_dict["generator"]["args"])
+                iafaces_netE.load_state_dict(ckpt["e_ema"])
+                iafaces_netG.load_state_dict(ckpt["g_ema"])
+                iafaces_netE.eval().to(device)
+                iafaces_netG.eval().to(device)
+
+                logger.info("Official IAFaces models loaded on %s in %.2fs", device, time.time() - t_load_start)
+            except Exception as e:
+                logger.warning("Failed to initialize official IAFaces model: %s. Falling back to mock.", e)
+
     generated_records: List[Dict[str, Any]] = []
 
-    for idx in indices:
+    from tqdm import tqdm
+    pbar = tqdm(indices, desc=f"Generating {generator}")
+    for idx in pbar:
         sample_seed = seed + idx
         src_path = available_sources[idx]
         sample_stem = f"{generator.lower()}_{idx:06d}"
         fake_filename = f"{sample_stem}.png"
         fake_path = dest_fake_dir / fake_filename
+        dest_src_file = dest_source_dir / fake_filename
+
+        # Smart resume: if fake already exists, skip IMMEDIATELY to avoid slow disk I/O
+        if fake_path.exists() and fake_path.stat().st_size > 0:
+            continue
 
         # If attribute is 'all', 'mixed', 'auto', or None, automatically cycle through all attributes
         if attribute is None or attribute.lower() in {"all", "mixed", "auto", "any"}:
@@ -261,7 +311,6 @@ def run_am_generation(
             cur_attribute = attribute
 
         # Ensure source image is in dest_source_dir
-        dest_src_file = dest_source_dir / fake_filename
         if not dry_run and not dest_src_file.exists():
             from PIL import Image
             with Image.open(src_path) as s_img:
@@ -270,10 +319,6 @@ def run_am_generation(
 
         if dry_run:
             logger.info("[DRY-RUN] Would generate AM fake %s -> %s from source %s", generator, fake_path, dest_src_file)
-            continue
-
-        if fake_path.exists() and fake_path.stat().st_size > 0:
-            logger.debug("File %s exists, skipping.", fake_filename)
             continue
 
         from PIL import Image
@@ -377,6 +422,56 @@ def run_am_generation(
                 peak_vram_mb,
                 ram_mb,
             )
+        elif iafaces_netE is not None and iafaces_netG is not None and generator == "IAFaces":
+            import time
+            import psutil
+            import torch.nn.functional as F
+
+            device = next(iafaces_netE.parameters()).device
+            t_gen_start = time.time()
+
+            src_tensor = torch.from_numpy(src_np).permute(2, 0, 1).unsqueeze(0).float() / 127.5 - 1.0
+            src_tensor = F.interpolate(src_tensor, (256, 256), mode="bilinear").to(device)
+
+            ref_idx = (idx + 7) % len(available_sources)
+            with Image.open(available_sources[ref_idx]) as r_img:
+                ref_np = np.array(r_img.convert("RGB"))
+            ref_tensor = torch.from_numpy(ref_np).permute(2, 0, 1).unsqueeze(0).float() / 127.5 - 1.0
+            ref_tensor = F.interpolate(ref_tensor, (256, 256), mode="bilinear").to(device)
+
+            comp_map = {
+                "smile": [3],
+                "glasses": [0, 1],
+                "young": [0, 1, 2, 3],
+                "wavy_hair": [0, 1],
+                "bangs": [0, 1],
+            }
+            comp_indices = comp_map.get(cur_attribute.lower(), [3])
+
+            with torch.no_grad():
+                src_face, src_nodes = iafaces_netE(src_tensor)
+                _, ref_nodes = iafaces_netE(ref_tensor)
+
+                manip_nodes = src_nodes.clone()
+                manip_nodes[:, comp_indices, :] = ref_nodes[:, comp_indices, :]
+                fake_tensor = iafaces_netG(src_face, manip_nodes, randomize_noise=False)
+
+            fake_np = ((fake_tensor[0].permute(1, 2, 0).clamp(-1, 1).cpu().numpy() + 1.0) / 2.0 * 255.0).astype(np.uint8)
+            fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
+            fake_pil.save(fake_path, format="PNG")
+
+            gen_duration = time.time() - t_gen_start
+            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+            ram_mb = psutil.Process().memory_info().rss / (1024**2)
+
+            sample_metrics = {
+                "inference_time_sec": round(gen_duration, 3),
+                "peak_vram_mb": round(peak_vram_mb, 2),
+                "ram_mb": round(ram_mb, 2),
+                "real_inference": True,
+                "official_iafaces": True,
+                "attribute": cur_attribute,
+            }
         elif mock or checkpoint is None or not checkpoint.exists():
             fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
