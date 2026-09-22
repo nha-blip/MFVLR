@@ -273,6 +273,7 @@ def run_efs_generation(
 
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
+                torch.backends.cudnn.benchmark = True
             t_gen_start = time.time()
             gen_device = "cuda" if torch.cuda.is_available() else "cpu"
             gen_seed = torch.Generator(device=gen_device).manual_seed(batch_seed)
