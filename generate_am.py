@@ -56,6 +56,27 @@ if "numpy.lib.function_base" not in sys.modules:
             setattr(_fb_mod, _k, getattr(np, _k))
         sys.modules["numpy.lib.function_base"] = _fb_mod
 
+# LMDB mock monkeypatch if lmdb is not installed (DiffAE dataset.py imports lmdb for training dataset classes)
+if "lmdb" not in sys.modules:
+    try:
+        import lmdb
+    except ImportError:
+        _lmdb_mod = types.ModuleType("lmdb")
+        class _DummyEnv:
+            def begin(self, *args, **kwargs):
+                return self
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def get(self, *args, **kwargs):
+                return None
+            def cursor(self):
+                return self
+        _lmdb_mod.open = lambda *args, **kwargs: _DummyEnv()
+        _lmdb_mod.Environment = _DummyEnv
+        sys.modules["lmdb"] = _lmdb_mod
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
