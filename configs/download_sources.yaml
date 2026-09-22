@@ -89,4 +89,12 @@ sources:
     checkpoint_url: "https://huggingface.co/datasets/korexyz/celeba-hq-256x256/resolve/main/data/validation-00000-of-00001.parquet"
     filename: "celeba_hq_validation.parquet"
     sha256: null
-    manual_instructions: "Pristine real faces from CelebA-HQ dataset (2,000 high-res faces)."
+    manual_instructions: "Pristine real faces from CelebA-HQ dataset. For 50,000 faces, run: python download_real_faces.py --count 50000."
+
+  Real_FFHQ:
+    category: REAL
+    architecture: REAL
+    repository: "https://huggingface.co/datasets/bitmind/ffhq-256"
+    checkpoint_url: "https://huggingface.co/datasets/bitmind/ffhq-256"
+    manual_instructions: "Pristine real faces from FFHQ dataset. Downloaded via download_real_faces.py."
+
