@@ -222,6 +222,26 @@ def run_efs_generation(
 
         logger.info("Initializing official LatDiff model from %s...", checkpoint)
         t_load_start = time.time()
+
+        # PyTorch Lightning 2.0+ compatibility shim for latent-diffusion
+        try:
+            import pytorch_lightning.utilities.distributed
+        except (ImportError, ModuleNotFoundError, AttributeError):
+            import types
+            try:
+                from pytorch_lightning.utilities.rank_zero import rank_zero_only
+            except Exception:
+                def rank_zero_only(fn):
+                    return fn
+            dist_mod = types.ModuleType("pytorch_lightning.utilities.distributed")
+            dist_mod.rank_zero_only = rank_zero_only
+            sys.modules["pytorch_lightning.utilities.distributed"] = dist_mod
+            try:
+                import pytorch_lightning.utilities
+                pytorch_lightning.utilities.distributed = dist_mod
+            except Exception:
+                pass
+
         from omegaconf import OmegaConf
         from ldm.util import instantiate_from_config
         from ldm.models.diffusion.ddim import DDIMSampler
@@ -244,7 +264,11 @@ def run_efs_generation(
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         latdiff_model = instantiate_from_config(config.model)
 
-        pl_sd = torch.load(str(checkpoint), map_location="cpu")
+        try:
+            pl_sd = torch.load(str(checkpoint), map_location="cpu", weights_only=False)
+        except TypeError:
+            pl_sd = torch.load(str(checkpoint), map_location="cpu")
+
         sd = pl_sd["state_dict"] if "state_dict" in pl_sd else pl_sd
         latdiff_model.load_state_dict(sd, strict=False)
         latdiff_model = latdiff_model.to(device).eval()
