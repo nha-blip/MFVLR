@@ -44,6 +44,105 @@ def _safe_torch_load(*args, **kwargs):
     return _orig_torch_load(*args, **kwargs)
 torch.load = _safe_torch_load
 
+
+def ensure_pytorch_lightning_compat() -> None:
+    """Provides backward-compatibility shim for PyTorch Lightning 2.0+ (used by ldm in LatDiff and CollDiff)."""
+    try:
+        import pytorch_lightning.utilities.distributed
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        import types
+        try:
+            from pytorch_lightning.utilities.rank_zero import rank_zero_only, rank_zero_info
+        except Exception:
+            try:
+                from lightning_utilities.core.rank_zero import rank_zero_only
+                def rank_zero_info(*args, **kwargs):
+                    pass
+            except Exception:
+                def rank_zero_only(fn):
+                    return fn
+                def rank_zero_info(*args, **kwargs):
+                    pass
+
+        dist_mod = types.ModuleType("pytorch_lightning.utilities.distributed")
+        dist_mod.rank_zero_only = rank_zero_only
+        dist_mod.rank_zero_info = rank_zero_info
+        sys.modules["pytorch_lightning.utilities.distributed"] = dist_mod
+        try:
+            import pytorch_lightning.utilities
+            pytorch_lightning.utilities.distributed = dist_mod
+            if not hasattr(pytorch_lightning.utilities, "rank_zero_only"):
+                pytorch_lightning.utilities.rank_zero_only = rank_zero_only
+            if not hasattr(pytorch_lightning.utilities, "rank_zero_info"):
+                pytorch_lightning.utilities.rank_zero_info = rank_zero_info
+        except Exception:
+            pass
+
+
+ensure_pytorch_lightning_compat()
+
+
+def ensure_colldiff_dependencies() -> None:
+    """Ensures taming-transformers, CLIP, and kornia are available for LatDiff and CollDiff."""
+    # 1. taming-transformers
+    try:
+        import taming
+    except (ImportError, ModuleNotFoundError):
+        external_dir = Path(__file__).resolve().parent / "external"
+        taming_repo = external_dir / "taming-transformers"
+        if not taming_repo.exists():
+            logger.info("taming module not found. Auto-cloning CompVis/taming-transformers...")
+            import subprocess
+            try:
+                external_dir.mkdir(parents=True, exist_ok=True)
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", "https://github.com/CompVis/taming-transformers.git", str(taming_repo)],
+                    check=True,
+                )
+            except Exception as e:
+                logger.warning("Git clone taming-transformers failed: %s. Attempting pip install...", e)
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/CompVis/taming-transformers.git"], check=False)
+                except Exception:
+                    pass
+        if taming_repo.exists() and str(taming_repo) not in sys.path:
+            sys.path.insert(0, str(taming_repo))
+
+    # 2. openai/CLIP
+    try:
+        import clip
+    except (ImportError, ModuleNotFoundError):
+        external_dir = Path(__file__).resolve().parent / "external"
+        clip_repo = external_dir / "clip"
+        if not clip_repo.exists():
+            logger.info("clip module not found. Auto-cloning openai/CLIP...")
+            import subprocess
+            try:
+                external_dir.mkdir(parents=True, exist_ok=True)
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", "https://github.com/openai/CLIP.git", str(clip_repo)],
+                    check=True,
+                )
+            except Exception as e:
+                logger.warning("Git clone CLIP failed: %s. Attempting pip install...", e)
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/openai/CLIP.git"], check=False)
+                except Exception:
+                    pass
+        if clip_repo.exists() and str(clip_repo) not in sys.path:
+            sys.path.insert(0, str(clip_repo))
+
+    # 3. kornia
+    try:
+        import kornia
+    except (ImportError, ModuleNotFoundError):
+        import subprocess
+        logger.info("kornia not found. Auto-installing via pip...")
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "kornia"], check=False)
+        except Exception as e:
+            logger.warning("Failed to auto-install kornia: %s", e)
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
@@ -265,23 +364,8 @@ def run_efs_generation(
         t_load_start = time.time()
 
         # PyTorch Lightning 2.0+ compatibility shim for latent-diffusion
-        try:
-            import pytorch_lightning.utilities.distributed
-        except (ImportError, ModuleNotFoundError, AttributeError):
-            import types
-            try:
-                from pytorch_lightning.utilities.rank_zero import rank_zero_only
-            except Exception:
-                def rank_zero_only(fn):
-                    return fn
-            dist_mod = types.ModuleType("pytorch_lightning.utilities.distributed")
-            dist_mod.rank_zero_only = rank_zero_only
-            sys.modules["pytorch_lightning.utilities.distributed"] = dist_mod
-            try:
-                import pytorch_lightning.utilities
-                pytorch_lightning.utilities.distributed = dist_mod
-            except Exception:
-                pass
+        ensure_pytorch_lightning_compat()
+        ensure_colldiff_dependencies()
 
         from omegaconf import OmegaConf
         from ldm.util import instantiate_from_config
@@ -390,6 +474,8 @@ def run_efs_generation(
         else:
             logger.info("Initializing official CollDiff model from %s...", checkpoint)
             t_load_start = time.time()
+            ensure_pytorch_lightning_compat()
+            ensure_colldiff_dependencies()
             from omegaconf import OmegaConf
             from ldm.util import instantiate_from_config
 
