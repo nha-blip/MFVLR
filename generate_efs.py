@@ -541,12 +541,22 @@ def run_efs_generation(
                 }
                 generated_records.append(record)
 
-    # Save provenance
+    # Save provenance (merge with existing records if resuming)
     if not dry_run and generated_records:
         prov_file = gen_out_dir / f"provenance_shard_{shard_id}.json"
+        if prov_file.exists():
+            try:
+                with open(prov_file, "r", encoding="utf-8") as f:
+                    old_records = json.load(f)
+                merged = {r.get("sample_id"): r for r in old_records if isinstance(r, dict)}
+                for r in generated_records:
+                    merged[r.get("sample_id")] = r
+                generated_records = list(merged.values())
+            except Exception as pe:
+                logger.debug("Could not read previous provenance to merge: %s", pe)
         with open(prov_file, "w", encoding="utf-8") as f:
             json.dump(generated_records, f, indent=2)
-        logger.info("Saved provenance for %d samples to %s", len(generated_records), prov_file)
+        logger.info("Saved provenance for %d total samples to %s", len(generated_records), prov_file)
 
     return generated_records
 
