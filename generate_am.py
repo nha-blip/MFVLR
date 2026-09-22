@@ -36,6 +36,8 @@ import psutil
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from PIL import Image
+from tqdm import tqdm
 
 # Safe load monkeypatch for PyTorch 2.6+ where weights_only=True by default breaks legacy checkpoints
 _orig_torch_load = torch.load
@@ -730,7 +732,6 @@ def run_am_generation(
                 continue
 
             t_gen_start = time.time()
-            from PIL import Image
             tensor_list = []
             for item in batch_items:
                 with Image.open(item["src_path"]) as s_img:
@@ -797,7 +798,6 @@ def run_am_generation(
 
             pbar.set_postfix({"sec/img": f"{gen_duration:.2f}", "bs": len(batch_items)})
     else:
-        from tqdm import tqdm
         pbar = tqdm(indices, desc=f"Generating {generator}")
         for idx in pbar:
             sample_seed = seed + idx
@@ -819,7 +819,6 @@ def run_am_generation(
 
             # Ensure source image is in dest_source_dir
             if not dry_run and not dest_src_file.exists():
-                from PIL import Image
                 with Image.open(src_path) as s_img:
                     s_resized = s_img.convert("RGB").resize((224, 224), Image.BILINEAR)
                     s_resized.save(dest_src_file, format="PNG", compress_level=1)
@@ -828,7 +827,6 @@ def run_am_generation(
                 logger.info("[DRY-RUN] Would generate AM fake %s -> %s from source %s", generator, fake_path, dest_src_file)
                 continue
 
-            from PIL import Image
             with Image.open(dest_src_file) as s_img:
                 src_pil = s_img.convert("RGB")
             src_np = np.array(src_pil)
