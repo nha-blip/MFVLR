@@ -289,6 +289,67 @@ def run_efs_generation(
             sum(p.numel() for p in latdiff_model.parameters()),
         )
 
+    # Real inference setup for CollDiff
+    colldiff_model = None
+    if not mock and not dry_run and generator == "CollDiff":
+        import time
+        import psutil
+
+        colldiff_repo = Path(__file__).resolve().parent / "external" / "colldiff"
+        if not colldiff_repo.exists():
+            logger.info("CollDiff repository not found at %s. Auto-cloning from ziqihuangg/Collaborative-Diffusion...", colldiff_repo)
+            import subprocess
+            colldiff_repo.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["git", "clone", "https://github.com/ziqihuangg/Collaborative-Diffusion.git", str(colldiff_repo)],
+                check=True
+            )
+        if str(colldiff_repo) not in sys.path:
+            sys.path.insert(0, str(colldiff_repo))
+
+        if checkpoint is None or not checkpoint.exists():
+            candidates = [
+                Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
+                Path("checkpoints/EFS/CollDiff/colldiff_ffhq.ckpt"),
+                colldiff_repo / "pretrained" / "256_codiff_mask_text.ckpt",
+            ]
+            for c in candidates:
+                if c.exists():
+                    checkpoint = c
+                    break
+
+        if checkpoint is None or not checkpoint.exists():
+            logger.warning("CollDiff checkpoint not found. Falling back to mock unless checkpoint is supplied.")
+        else:
+            logger.info("Initializing official CollDiff model from %s...", checkpoint)
+            t_load_start = time.time()
+            from omegaconf import OmegaConf
+            from ldm.util import instantiate_from_config
+
+            config_path = colldiff_repo / "configs" / "256_codiff_mask_text.yaml"
+            config = OmegaConf.load(str(config_path))
+            config.model.params.seg_mask_ldm_config_path = str(colldiff_repo / "configs" / "256_mask.yaml")
+            config.model.params.seg_mask_ldm_ckpt_path = str(colldiff_repo / "pretrained" / "256_mask.ckpt")
+            config.model.params.text_ldm_config_path = str(colldiff_repo / "configs" / "256_text.yaml")
+            config.model.params.text_ldm_ckpt_path = str(colldiff_repo / "pretrained" / "256_text.ckpt")
+
+            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            old_cwd = os.getcwd()
+            os.chdir(str(colldiff_repo))
+            try:
+                colldiff_model = instantiate_from_config(config.model)
+                colldiff_model.init_from_ckpt(str(checkpoint))
+                colldiff_model = colldiff_model.to(device).eval()
+            finally:
+                os.chdir(old_cwd)
+
+            logger.info(
+                "CollDiff model loaded on %s in %.2fs | Parameters: %d",
+                device,
+                time.time() - t_load_start,
+                sum(p.numel() for p in colldiff_model.parameters()),
+            )
+
     # Filter pending indices that need generation (for resume support)
     pending_indices = []
     for idx in indices:
@@ -308,7 +369,7 @@ def run_efs_generation(
     logger.info("Pending samples to generate for [%s]: %d / %d (batch_size=%d, fp16=%s)",
                 generator, len(pending_indices), len(indices), batch_size, fp16)
 
-    effective_bs = max(1, batch_size) if (pipe is not None or sg3_model is not None or latdiff_model is not None) else 1
+    effective_bs = max(1, batch_size) if (pipe is not None or sg3_model is not None or latdiff_model is not None or colldiff_model is not None) else 1
 
     for b_start in range(0, len(pending_indices), effective_bs):
         batch_ids = pending_indices[b_start:b_start + effective_bs]
@@ -512,6 +573,101 @@ def run_efs_generation(
 
             logger.info(
                 "Real LatDiff generated batch of %d (samples %d-%d) in %.2fs (%.3fs/img) | Peak VRAM: %.1f MB",
+                cur_b,
+                batch_ids[0],
+                batch_ids[-1],
+                total_duration,
+                per_img_duration,
+                peak_vram_mb,
+            )
+
+        elif colldiff_model is not None and generator == "CollDiff":
+            import time
+            import psutil
+            import torch.nn.functional as F
+
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+            t_gen_start = time.time()
+            gen_device = next(colldiff_model.parameters()).device
+
+            torch.manual_seed(batch_seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(batch_seed)
+
+            colldiff_repo = Path(__file__).resolve().parent / "external" / "colldiff"
+            mask_path = colldiff_repo / "test_data" / "256_masks" / "29980.png"
+            input_text = "A photo of a face."
+            if mask_path.exists():
+                from PIL import Image
+                with open(mask_path, "rb") as f:
+                    m_img = Image.open(f).resize((32, 32), Image.NEAREST)
+                    flat = list(m_img.getdata())
+                flat_t = torch.tensor(flat)
+                one_hot = F.one_hot(flat_t, num_classes=19).transpose(0, 1).unsqueeze(0).to(gen_device)
+            else:
+                one_hot = torch.zeros((1, 19, 1024), device=gen_device)
+
+            condition = {
+                "seg_mask": one_hot.repeat(cur_b, 1, 1),
+                "text": [input_text.lower()] * cur_b,
+            }
+
+            from ldm.models.diffusion.ddim_confidence import DDIMConfidenceSampler
+            with torch.no_grad():
+                with colldiff_model.ema_scope("Plotting"):
+                    cond = colldiff_model.get_learned_conditioning(condition)
+                    sampler = DDIMConfidenceSampler(model=colldiff_model, return_confidence_map=False)
+                    z_0, _ = sampler.sample(
+                        S=steps,
+                        batch_size=cur_b,
+                        shape=(3, 64, 64),
+                        conditioning=cond,
+                        verbose=False,
+                        eta=1.0,
+                        log_every_t=1,
+                    )
+                x_samples = colldiff_model.decode_first_stage(z_0)
+                x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
+
+            total_duration = time.time() - t_gen_start
+            per_img_duration = round(total_duration / cur_b, 3)
+            peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
+            ram_mb = psutil.Process().memory_info().rss / (1024**2)
+
+            for b_i, idx in enumerate(batch_ids):
+                sample_seed = seed + idx
+                file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
+                img_np = (x_samples[b_i].permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
+                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
+                cv2.imwrite(str(file_path), img)
+
+                sample_metrics = {
+                    "inference_time_sec": per_img_duration,
+                    "peak_vram_mb": round(peak_vram_mb, 2),
+                    "ram_mb": round(ram_mb, 2),
+                    "batch_size": cur_b,
+                    "native_resolution": "256x256",
+                    "final_resolution": "224x224",
+                    "real_inference": True,
+                }
+                record = {
+                    "sample_id": f"{generator.lower()}_{idx:06d}",
+                    "generator": generator,
+                    "forgery_type": "EFS",
+                    "architecture": "Diffusion",
+                    "image_path": file_path.as_posix(),
+                    "seed": sample_seed,
+                    "checkpoint": str(checkpoint),
+                    "shard_id": shard_id,
+                    "index": idx,
+                    "metrics": sample_metrics,
+                }
+                generated_records.append(record)
+
+            logger.info(
+                "Real CollDiff generated batch of %d (samples %d-%d) in %.2fs (%.3fs/img) | Peak VRAM: %.1f MB",
                 cur_b,
                 batch_ids[0],
                 batch_ids[-1],
