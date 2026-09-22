@@ -43,10 +43,16 @@ sources:
     category: AM
     architecture: Diffusion
     repository: "https://github.com/phizaz/diffae"
-    checkpoint_url: null
-    gdrive_id: "1-5zfxT6Gl-GjxM7z9ZO2AHlB70tfmF6V"
-    filename: "last.ckpt"
-    manual_instructions: "DiffAE ffhq256 autoenc checkpoint."
+    files:
+      - filename: "ffhq256_autoenc/last.ckpt"
+        gdrive_id: "1-BBodaXHMrYFutdyHwokrE7vRof83fwH"
+        sha256: "9bd2ba9e4c22afde8f18958026a4e8e625ef67d2c3ee76bb3aa72f3e67d3b9ca"
+      - filename: "ffhq256_autoenc/latent.pkl"
+        gdrive_id: "1-9gYwa8GCuBkrCR6uqfmydXNPz2X6s0R"
+      - filename: "ffhq256_autoenc_cls/last.ckpt"
+        gdrive_id: "11TesWlnKtg8WoeUjtxcQd1dwQQJX3olb"
+        sha256: "a83381098ec856ee07acfc0fed2d99f5d039c532b48ba43aef800eaca3731134"
+    manual_instructions: "Official DiffAE autoencoder, latents, and classifier checkpoints."
 
   LatTrans:
     category: AM
@@ -60,7 +66,7 @@ sources:
   IAFaces:
     category: AM
     architecture: GAN
-    repository: "https://github.com/CMACH508/IA-FaceS"
+    repository: "https://github.com/CMACH508/IA-FaceS.git"
     checkpoint_url: null
     gdrive_id: "1tHXOpMn7AGUYVmgDU-8oVRhcYims9jjZ"
     filename: "iafaces-celebahq-256.pth"
@@ -78,10 +84,14 @@ sources:
     category: FS
     architecture: GAN
     repository: "https://github.com/liqi-casia/FaceSwapper"
-    checkpoint_url: null
-    gdrive_id: "1Tb3V09wbaGe6SaiN3BZkOcCy7VJ0KYC8"
-    filename: "faceswapper.ckpt"
-    manual_instructions: "Official FaceSwapper generator weights."
+    files:
+      - filename: "faceswapper.ckpt"
+        gdrive_id: "1Tb3V09wbaGe6SaiN3BZkOcCy7VJ0KYC8"
+      - filename: "model_ir_se50.pth"
+        gdrive_id: "1-lxc-jZGIFNdwFUXQ9tDS9OSuhadj6AC"
+      - filename: "wing.ckpt"
+        gdrive_id: "1lBt4x4P5qaClB2ZN_POBV-ue41hdlaoJ"
+    manual_instructions: "Official FaceSwapper generator weights, ArcFace backbone, and Wing landmark detector."
 
   DiffFace:
     category: FS

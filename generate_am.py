@@ -212,6 +212,12 @@ def run_am_generation(
 
         # Import official DiffAE modules
         diffae_repo_path = Path(__file__).parent / "external" / "diffae"
+        if not (diffae_repo_path / "experiment.py").exists():
+            logger.info("Cloning official DiffAE repository from konpatp/diffae into %s...", diffae_repo_path)
+            diffae_repo_path.parent.mkdir(parents=True, exist_ok=True)
+            import subprocess
+            subprocess.run(["git", "clone", "https://github.com/konpatp/diffae.git", str(diffae_repo_path)], check=True)
+
         if str(diffae_repo_path) not in sys.path:
             sys.path.insert(0, str(diffae_repo_path))
 

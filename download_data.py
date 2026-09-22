@@ -244,57 +244,79 @@ class CheckpointManager:
             instructions = info.get("manual_instructions", "")
 
             dest_folder = self.checkpoints_dir / cat / gen_name
-            dest_file = dest_folder / filename
+            instructions = info.get("manual_instructions", "")
 
-            if url:
-                success = download_file(
-                    url=url,
-                    dest_path=dest_file,
-                    expected_sha256=sha256,
-                    force=force,
-                    dry_run=dry_run,
-                )
-                if success:
-                    status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
-                    if dest_file.suffix.lower() == ".zip" and not dry_run:
-                        import zipfile
-                        logger.info("Extracting %s to %s ...", dest_file.name, dest_folder)
-                        with zipfile.ZipFile(dest_file, "r") as zf:
-                            zf.extractall(dest_folder)
-                        logger.info("Extracted %s successfully.", dest_file.name)
-
-                    # For LatDiff, also ensure the first stage VQ-f4 model is present
-                    if gen_name == "LatDiff" and not dry_run:
-                        vq_dir = dest_folder / "first_stage_models" / "vq-f4"
-                        vq_ckpt = vq_dir / "model.ckpt"
-                        if not vq_ckpt.exists() or force:
-                            vq_url = "https://ommer-lab.com/files/latent-diffusion/vq-f4.zip"
-                            vq_zip = vq_dir / "vq-f4.zip"
-                            logger.info("Downloading LatDiff first-stage VQ-f4 model...")
-                            if download_file(vq_url, vq_zip, force=force):
-                                import zipfile
-                                with zipfile.ZipFile(vq_zip, "r") as zf:
-                                    zf.extractall(vq_dir)
-                                logger.info("Extracted VQ-f4 model to %s successfully.", vq_dir)
-
-                    # For Real, unpack the CelebA-HQ parquet into dataset_root/images/real
-                    if gen_name.lower() == "real" and not dry_run:
-                        real_out_dir = self.dataset_root / "images" / "real"
-                        unpack_celeba_parquet(dest_file, real_out_dir, max_count=self.max_real_count)
-                else:
-                    status_report["failed"].append({"generator": gen_name, "url": url})
-            elif gdrive_id:
-                success = download_gdrive_file(
-                    gdrive_id=gdrive_id,
-                    dest_path=dest_file,
-                    force=force,
-                    dry_run=dry_run,
-                )
-                if success:
-                    status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
-                else:
-                    status_report["failed"].append({"generator": gen_name, "gdrive_id": gdrive_id})
+            raw_files = info.get("files")
+            if raw_files:
+                file_items = raw_files
             else:
+                file_items = [{
+                    "filename": info.get("filename") or f"{gen_name.lower()}_checkpoint.pth",
+                    "url": info.get("checkpoint_url"),
+                    "gdrive_id": info.get("gdrive_id"),
+                    "sha256": info.get("sha256"),
+                }]
+
+            any_attempted = False
+            for f_item in file_items:
+                fname = f_item.get("filename")
+                f_url = f_item.get("url") or f_item.get("checkpoint_url")
+                f_gid = f_item.get("gdrive_id")
+                f_sha = f_item.get("sha256")
+                dest_file = dest_folder / fname
+
+                if f_url:
+                    any_attempted = True
+                    success = download_file(
+                        url=f_url,
+                        dest_path=dest_file,
+                        expected_sha256=f_sha,
+                        force=force,
+                        dry_run=dry_run,
+                    )
+                    if success:
+                        status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
+                        if dest_file.suffix.lower() == ".zip" and not dry_run:
+                            import zipfile
+                            logger.info("Extracting %s to %s ...", dest_file.name, dest_file.parent)
+                            with zipfile.ZipFile(dest_file, "r") as zf:
+                                zf.extractall(dest_file.parent)
+                            logger.info("Extracted %s successfully.", dest_file.name)
+
+                        # For LatDiff, also ensure the first stage VQ-f4 model is present
+                        if gen_name == "LatDiff" and not dry_run:
+                            vq_dir = dest_folder / "first_stage_models" / "vq-f4"
+                            vq_ckpt = vq_dir / "model.ckpt"
+                            if not vq_ckpt.exists() or force:
+                                vq_url = "https://ommer-lab.com/files/latent-diffusion/vq-f4.zip"
+                                vq_zip = vq_dir / "vq-f4.zip"
+                                logger.info("Downloading LatDiff first-stage VQ-f4 model...")
+                                if download_file(vq_url, vq_zip, force=force):
+                                    import zipfile
+                                    with zipfile.ZipFile(vq_zip, "r") as zf:
+                                        zf.extractall(vq_dir)
+                                    logger.info("Extracted VQ-f4 model to %s successfully.", vq_dir)
+
+                        # For Real, unpack the CelebA-HQ parquet into dataset_root/images/real
+                        if gen_name.lower() == "real" and not dry_run:
+                            real_out_dir = self.dataset_root / "images" / "real"
+                            unpack_celeba_parquet(dest_file, real_out_dir, max_count=self.max_real_count)
+                    else:
+                        status_report["failed"].append({"generator": gen_name, "url": f_url})
+                elif f_gid:
+                    any_attempted = True
+                    success = download_gdrive_file(
+                        gdrive_id=f_gid,
+                        dest_path=dest_file,
+                        force=force,
+                        dry_run=dry_run,
+                    )
+                    if success:
+                        status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
+                    else:
+                        status_report["failed"].append({"generator": gen_name, "gdrive_id": f_gid})
+
+            if not any_attempted:
                 logger.warning(
                     "\n======================================================\n"
                     "[MANUAL_DOWNLOAD_REQUIRED] Generator: %s\n"
