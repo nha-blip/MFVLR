@@ -308,7 +308,7 @@ def run_efs_generation(
     logger.info("Pending samples to generate for [%s]: %d / %d (batch_size=%d, fp16=%s)",
                 generator, len(pending_indices), len(indices), batch_size, fp16)
 
-    effective_bs = max(1, batch_size) if (pipe is not None or sg3_model is not None) else 1
+    effective_bs = max(1, batch_size) if (pipe is not None or sg3_model is not None or latdiff_model is not None) else 1
 
     for b_start in range(0, len(pending_indices), effective_bs):
         batch_ids = pending_indices[b_start:b_start + effective_bs]
