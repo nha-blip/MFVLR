@@ -360,6 +360,7 @@ def run_efs_generation(
         if checkpoint is None or not checkpoint.exists():
             raise FileNotFoundError(f"LatDiff checkpoint not found at: {checkpoint}")
 
+        checkpoint = checkpoint.resolve()
         logger.info("Initializing official LatDiff model from %s...", checkpoint)
         t_load_start = time.time()
 
@@ -472,6 +473,7 @@ def run_efs_generation(
                 )
             logger.warning("CollDiff checkpoint not found. Falling back to mock unless checkpoint is supplied.")
         else:
+            checkpoint = checkpoint.resolve()
             logger.info("Initializing official CollDiff model from %s...", checkpoint)
             t_load_start = time.time()
             ensure_pytorch_lightning_compat()
@@ -481,10 +483,10 @@ def run_efs_generation(
 
             config_path = colldiff_repo / "configs" / "256_codiff_mask_text.yaml"
             config = OmegaConf.load(str(config_path))
-            config.model.params.seg_mask_ldm_config_path = str(colldiff_repo / "configs" / "256_mask.yaml")
-            config.model.params.seg_mask_ldm_ckpt_path = str(colldiff_repo / "pretrained" / "256_mask.ckpt")
-            config.model.params.text_ldm_config_path = str(colldiff_repo / "configs" / "256_text.yaml")
-            config.model.params.text_ldm_ckpt_path = str(colldiff_repo / "pretrained" / "256_text.ckpt")
+            config.model.params.seg_mask_ldm_config_path = str((colldiff_repo / "configs" / "256_mask.yaml").resolve())
+            config.model.params.seg_mask_ldm_ckpt_path = str((colldiff_repo / "pretrained" / "256_mask.ckpt").resolve())
+            config.model.params.text_ldm_config_path = str((colldiff_repo / "configs" / "256_text.yaml").resolve())
+            config.model.params.text_ldm_ckpt_path = str((colldiff_repo / "pretrained" / "256_text.ckpt").resolve())
 
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             old_cwd = os.getcwd()
