@@ -122,10 +122,48 @@ def run_fs_generation(
 
     # Collect source images
     available_sources: List[Path] = []
-    if source_dir.exists():
-        for p in sorted(source_dir.iterdir()):
-            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
-                available_sources.append(p)
+    try:
+        if source_dir.exists():
+            for p in sorted(source_dir.iterdir()):
+                if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
+                    available_sources.append(p)
+            if not available_sources:
+                for p in sorted(source_dir.rglob("*")):
+                    if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
+                        available_sources.append(p)
+    except OSError as oe:
+        if oe.errno == 5 or "Input/output error" in str(oe):
+            logger.error(
+                "\n======================================================\n"
+                "[GOOGLE_DRIVE_IO_ERROR] Input/output error on %s\n"
+                "Google Drive FUSE connection has timed out or disconnected.\n"
+                "To fix this immediately in Colab, run:\n"
+                "  from google.colab import drive\n"
+                "  drive.mount('/content/drive', force_remount=True)\n"
+                "\n"
+                "TIP FOR HIGH SPEED & STABILITY:\n"
+                "Copying images from Google Drive to local Colab SSD is 10x faster:\n"
+                "  !mkdir -p /content/real_images\n"
+                "  !cp -r %s/* /content/real_images/\n"
+                "Then re-run with --source-dir /content/real_images\n"
+                "======================================================",
+                source_dir,
+                source_dir,
+            )
+        raise
+
+    if not available_sources:
+        alt_paths = [Path("/content/real_images"), dataset_root / "images" / "real"]
+        for ap in alt_paths:
+            if ap.exists() and ap != source_dir:
+                try:
+                    candidates = [p for p in ap.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS]
+                    if candidates:
+                        logger.info("Found %d real face images in fallback path: %s", len(candidates), ap)
+                        available_sources = sorted(candidates)
+                        break
+                except Exception:
+                    pass
 
     # Mock sources if not enough exist
     if len(available_sources) < count and mock:
