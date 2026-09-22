@@ -264,10 +264,9 @@ def run_am_generation(
 
     # Calculate index range
     if start_index is not None and end_index is not None:
-        indices = list(range(start_index, min(end_index, len(available_sources))))
+        indices = list(range(start_index, end_index))
     else:
-        total = min(count, len(available_sources))
-        indices = [idx for idx in range(total) if idx % num_shards == shard_id]
+        indices = [idx for idx in range(count) if idx % num_shards == shard_id]
 
     logger.info(
         "Starting AM generation for [%s]: %d samples (shard %d/%d, attribute='%s')",
@@ -692,12 +691,7 @@ def run_am_generation(
                     pbar.update(1)
                     continue
 
-                src_path = available_sources[idx]
-                if not dry_run and not dest_src_file.exists():
-                    from PIL import Image
-                    with Image.open(src_path) as s_img:
-                        s_resized = s_img.convert("RGB").resize((224, 224), Image.BILINEAR)
-                        s_resized.save(dest_src_file, format="PNG")
+                src_path = available_sources[idx % len(available_sources)]
 
                 if attribute is None or attribute.lower() in {"all", "mixed", "auto", "any"}:
                     cur_attribute = AVAILABLE_ATTRIBUTES[idx % len(AVAILABLE_ATTRIBUTES)]
@@ -716,6 +710,7 @@ def run_am_generation(
 
                 batch_items.append({
                     "idx": idx,
+                    "src_path": src_path,
                     "sample_seed": sample_seed,
                     "sample_stem": sample_stem,
                     "fake_path": fake_path,
@@ -738,14 +733,17 @@ def run_am_generation(
             from PIL import Image
             tensor_list = []
             for item in batch_items:
-                with Image.open(item["dest_src_file"]) as s_img:
-                    src_pil = s_img.convert("RGB")
-                img_tensor = Ftrans.to_tensor(src_pil.resize((256, 256), Image.BILINEAR)) * 2 - 1
+                with Image.open(item["src_path"]) as s_img:
+                    s_rgb = s_img.convert("RGB")
+                if not item["dest_src_file"].exists():
+                    s_224 = s_rgb.resize((224, 224), Image.BILINEAR)
+                    s_224.save(item["dest_src_file"], format="PNG", compress_level=1)
+                img_tensor = Ftrans.to_tensor(s_rgb.resize((256, 256), Image.BILINEAR)) * 2 - 1
                 tensor_list.append(img_tensor)
 
             batch = torch.stack(tensor_list).to(device)
 
-            with torch.no_grad():
+            with torch.inference_mode():
                 cond = diffae_model.encode(batch)
                 xT = diffae_model.encode_stochastic(batch, cond, T=steps)
                 cond_norm = diffae_cls_model.normalize(cond)
@@ -763,7 +761,7 @@ def run_am_generation(
             for b_i, item in enumerate(batch_items):
                 fake_np = (pred[b_i].permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).round().astype(np.uint8)
                 fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
-                fake_pil.save(item["fake_path"], format="PNG")
+                fake_pil.save(item["fake_path"], format="PNG", compress_level=1)
 
                 sample_metrics = {
                     "inference_time_sec": round(gen_duration, 3),
@@ -803,7 +801,7 @@ def run_am_generation(
         pbar = tqdm(indices, desc=f"Generating {generator}")
         for idx in pbar:
             sample_seed = seed + idx
-            src_path = available_sources[idx]
+            src_path = available_sources[idx % len(available_sources)]
             sample_stem = f"{generator.lower()}_{idx:06d}"
             fake_filename = f"{sample_stem}.png"
             fake_path = dest_fake_dir / fake_filename
@@ -824,7 +822,7 @@ def run_am_generation(
                 from PIL import Image
                 with Image.open(src_path) as s_img:
                     s_resized = s_img.convert("RGB").resize((224, 224), Image.BILINEAR)
-                    s_resized.save(dest_src_file, format="PNG")
+                    s_resized.save(dest_src_file, format="PNG", compress_level=1)
 
             if dry_run:
                 logger.info("[DRY-RUN] Would generate AM fake %s -> %s from source %s", generator, fake_path, dest_src_file)
@@ -873,7 +871,7 @@ def run_am_generation(
 
                 fake_np = ((fake_tensor[0].permute(1, 2, 0).clamp(-1, 1).cpu().numpy() + 1.0) / 2.0 * 255.0).astype(np.uint8)
                 fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
-                fake_pil.save(fake_path, format="PNG")
+                fake_pil.save(fake_path, format="PNG", compress_level=1)
 
                 gen_duration = time.time() - t_gen_start
                 peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
@@ -929,7 +927,7 @@ def run_am_generation(
                     fake_np = (fake_tensor[0].permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
 
                 fake_pil = Image.fromarray(fake_np).resize((224, 224), Image.BILINEAR)
-                fake_pil.save(fake_path, format="PNG")
+                fake_pil.save(fake_path, format="PNG", compress_level=1)
 
                 gen_duration = time.time() - t_gen_start
                 peak_vram_mb = (torch.cuda.max_memory_allocated() / (1024**2)) if torch.cuda.is_available() else 0.0
@@ -947,12 +945,12 @@ def run_am_generation(
                 pbar.set_postfix({"attr": cur_attribute, "sec": f"{gen_duration:.2f}"})
             elif mock or checkpoint is None or not checkpoint.exists():
                 fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
-                Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
+                Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG", compress_level=1)
                 sample_metrics = {"real_inference": False, "note": "mock"}
                 pbar.set_postfix({"attr": cur_attribute, "mode": "mock"})
             else:
                 fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
-                Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
+                Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG", compress_level=1)
                 sample_metrics = {"real_inference": False}
                 pbar.set_postfix({"attr": cur_attribute, "mode": "fallback"})
 
