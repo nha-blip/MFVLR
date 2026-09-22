@@ -26,7 +26,9 @@ sources:
     architecture: Diffusion
     repository: "https://github.com/ziqihuangg/Collaborative-Diffusion"
     checkpoint_url: null
-    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Checkpoint requires Google Drive / Baidu Netdisk access from repository https://github.com/ziqihuangg/Collaborative-Diffusion. Place downloaded weights in checkpoints/EFS/CollDiff/."
+    gdrive_id: "1GjKAMp0hux9NtYZ9ig0Dq1eKZ5TrxS2v"
+    filename: "256_codiff_mask_text.ckpt"
+    manual_instructions: "Official Collaborative Diffusion 256 checkpoint."
 
   StyleGAN3:
     category: EFS
@@ -42,14 +44,18 @@ sources:
     architecture: Diffusion
     repository: "https://github.com/phizaz/diffae"
     checkpoint_url: null
-    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download CelebA-HQ 256x256 DiffAE checkpoint from https://github.com/phizaz/diffae (Google Drive / OneDrive link). Place in checkpoints/AM/DiffAE/."
+    gdrive_id: "1-5zfxT6Gl-GjxM7z9ZO2AHlB70tfmF6V"
+    filename: "last.ckpt"
+    manual_instructions: "DiffAE ffhq256 autoenc checkpoint."
 
   LatTrans:
     category: AM
     architecture: GAN
     repository: "https://github.com/InterDigitalInc/latent-transformer"
     checkpoint_url: null
-    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download pretrained Latent Transformer model from https://github.com/InterDigitalInc/latent-transformer. Place in checkpoints/AM/LatTrans/."
+    gdrive_id: "1bMTNWkh5LArTrWPaVtMrVcNtxi57pc-W"
+    filename: "psp_ffhq_encode.pt"
+    manual_instructions: "Latent Transformer pSp FFHQ encoder checkpoint."
 
   IAFaces:
     category: AM
@@ -73,7 +79,9 @@ sources:
     architecture: GAN
     repository: "https://github.com/liqi-casia/FaceSwapper"
     checkpoint_url: null
-    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Download FaceSwapper weights from https://github.com/liqi-casia/FaceSwapper. Place in checkpoints/FS/FaceSwapper/."
+    gdrive_id: "1Tb3V09wbaGe6SaiN3BZkOcCy7VJ0KYC8"
+    filename: "faceswapper.ckpt"
+    manual_instructions: "Official FaceSwapper generator weights."
 
   DiffFace:
     category: FS
