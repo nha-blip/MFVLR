@@ -29,6 +29,15 @@ from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
+import torch
+
+# Safe load monkeypatch for PyTorch 2.6+ where weights_only=True by default breaks legacy checkpoints
+_orig_torch_load = torch.load
+def _safe_torch_load(*args, **kwargs):
+    if "weights_only" not in kwargs:
+        kwargs["weights_only"] = False
+    return _orig_torch_load(*args, **kwargs)
+torch.load = _safe_torch_load
 
 logging.basicConfig(
     level=logging.INFO,
@@ -175,16 +184,7 @@ def run_am_generation(
     if not mock and not dry_run and generator == "DiffAE":
         import time
         import psutil
-        import torch
         import torchvision.transforms.functional as Ftrans
-
-        # Safe load monkeypatch for PyTorch 2.6+
-        _orig_load = torch.load
-        def safe_load(*args, **kwargs):
-            if 'weights_only' not in kwargs:
-                kwargs['weights_only'] = False
-            return _orig_load(*args, **kwargs)
-        torch.load = safe_load
 
         # Resolve checkpoints
         if checkpoint and Path(checkpoint).exists():
