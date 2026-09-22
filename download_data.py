@@ -117,16 +117,82 @@ def download_file(
         return False
 
 
+def download_gdrive_file(
+    gdrive_id: str,
+    dest_path: Path,
+    force: bool = False,
+    dry_run: bool = False,
+) -> bool:
+    """Downloads a file from Google Drive via gdown."""
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    if dest_path.exists() and dest_path.stat().st_size > 0 and not force:
+        logger.info("File %s already exists. Skipping (use --force to overwrite).", dest_path.name)
+        return True
+
+    if dry_run:
+        logger.info("[DRY-RUN] Would download Google Drive ID %s -> %s", gdrive_id, dest_path)
+        return True
+
+    try:
+        import gdown
+        logger.info("Downloading from Google Drive ID %s -> %s ...", gdrive_id, dest_path)
+        output = gdown.download(id=gdrive_id, output=str(dest_path), quiet=False)
+        return output is not None and dest_path.exists() and dest_path.stat().st_size > 0
+    except Exception as e:
+        logger.error("gdown download failed for ID %s: %s (Ensure gdown is installed: pip install gdown)", gdrive_id, e)
+        return False
+
+
+def unpack_celeba_parquet(
+    parquet_path: Path,
+    out_dir: Path,
+    max_count: int = 2000,
+) -> bool:
+    """Unpacks pristine real face images from CelebA-HQ parquet into out_dir."""
+    import io
+    from PIL import Image
+    try:
+        import pandas as pd
+    except ImportError:
+        logger.error("pandas and pyarrow are required to unpack CelebA-HQ. Please run: pip install pandas pyarrow")
+        return False
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Unpacking up to %d pristine CelebA-HQ real faces from %s to %s ...", max_count, parquet_path.name, out_dir)
+    try:
+        df = pd.read_parquet(str(parquet_path))
+        extracted = 0
+        for idx, row in df.iterrows():
+            if extracted >= max_count:
+                break
+            out_file = out_dir / f"real_{extracted:06d}.png"
+            if not out_file.exists():
+                img_item = row["image"]
+                img_bytes = img_item["bytes"] if isinstance(img_item, dict) else img_item
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB").resize((224, 224), Image.BILINEAR)
+                img.save(out_file, format="PNG")
+            extracted += 1
+        logger.info("Unpacked %d real face images successfully to %s", extracted, out_dir)
+        return True
+    except Exception as e:
+        logger.error("Failed to unpack CelebA-HQ parquet: %s", e)
+        return False
+
+
 class CheckpointManager:
-    """Manages downloading and manual instructions for generator checkpoints."""
+    """Manages downloading and manual instructions for generator checkpoints and real datasets."""
 
     def __init__(
         self,
         config_path: Path,
         checkpoints_dir: Path = Path("checkpoints"),
+        dataset_root: Path = Path("MFVLR_Dataset"),
+        max_real_count: int = 2000,
     ) -> None:
         self.config_path = config_path.resolve()
         self.checkpoints_dir = checkpoints_dir.resolve()
+        self.dataset_root = dataset_root.resolve()
+        self.max_real_count = max_real_count
         self.sources = self._load_sources()
 
     def _load_sources(self) -> Dict[str, Any]:
@@ -157,14 +223,22 @@ class CheckpointManager:
         )
 
         for gen_name in generators_to_process:
-            if gen_name not in self.sources:
+            matched_key = None
+            for k in self.sources.keys():
+                if k.lower() == gen_name.lower():
+                    matched_key = k
+                    break
+
+            if not matched_key:
                 logger.error("Generator '%s' not found in %s", gen_name, self.config_path.name)
                 status_report["failed"].append({"generator": gen_name, "reason": "Not configured"})
                 continue
 
+            gen_name = matched_key
             info = self.sources[gen_name]
             cat = info.get("category", "OTHER")
             url = info.get("checkpoint_url")
+            gdrive_id = info.get("gdrive_id")
             filename = info.get("filename") or f"{gen_name.lower()}_checkpoint.pth"
             sha256 = info.get("sha256")
             instructions = info.get("manual_instructions", "")
@@ -202,8 +276,24 @@ class CheckpointManager:
                                 with zipfile.ZipFile(vq_zip, "r") as zf:
                                     zf.extractall(vq_dir)
                                 logger.info("Extracted VQ-f4 model to %s successfully.", vq_dir)
+
+                    # For Real, unpack the CelebA-HQ parquet into dataset_root/images/real
+                    if gen_name.lower() == "real" and not dry_run:
+                        real_out_dir = self.dataset_root / "images" / "real"
+                        unpack_celeba_parquet(dest_file, real_out_dir, max_count=self.max_real_count)
                 else:
                     status_report["failed"].append({"generator": gen_name, "url": url})
+            elif gdrive_id:
+                success = download_gdrive_file(
+                    gdrive_id=gdrive_id,
+                    dest_path=dest_file,
+                    force=force,
+                    dry_run=dry_run,
+                )
+                if success:
+                    status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
+                else:
+                    status_report["failed"].append({"generator": gen_name, "gdrive_id": gdrive_id})
             else:
                 logger.warning(
                     "\n======================================================\n"
@@ -242,13 +332,25 @@ def main() -> int:
         "--generator",
         type=str,
         default="all",
-        help="Specific generator to download (e.g. DDPM, StyleGAN3) or 'all'.",
+        help="Specific generator to download (e.g. DDPM, StyleGAN3, LatDiff, IAFaces, Real) or 'all'.",
     )
     parser.add_argument(
         "--checkpoints-dir",
         type=str,
         default="checkpoints",
         help="Directory to store model checkpoints.",
+    )
+    parser.add_argument(
+        "--dataset-root",
+        type=str,
+        default="MFVLR_Dataset",
+        help="Root directory of dataset (for unpacking real faces).",
+    )
+    parser.add_argument(
+        "--max-real-count",
+        type=int,
+        default=2000,
+        help="Maximum number of real face images to unpack from CelebA-HQ parquet.",
     )
     parser.add_argument(
         "--force",
@@ -266,6 +368,8 @@ def main() -> int:
     manager = CheckpointManager(
         config_path=Path(args.config),
         checkpoints_dir=Path(args.checkpoints_dir),
+        dataset_root=Path(args.dataset_root),
+        max_real_count=args.max_real_count,
     )
 
     report = manager.process(

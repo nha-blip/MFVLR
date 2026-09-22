@@ -54,9 +54,12 @@ sources:
   IAFaces:
     category: AM
     architecture: GAN
-    repository: "IA-FaceS: A Bidirectional Method for Semantic Face Editing"
+    repository: "https://github.com/CMACH508/IA-FaceS"
     checkpoint_url: null
-    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Consult official authors / repository for IA-FaceS weights. Place in checkpoints/AM/IAFaces/."
+    gdrive_id: "1tHXOpMn7AGUYVmgDU-8oVRhcYims9jjZ"
+    filename: "iafaces-celebahq-256.pth"
+    sha256: null
+    manual_instructions: "Official IA-FaceS pretrained weights on CelebA-HQ."
 
   FSLSD:
     category: FS
@@ -82,6 +85,8 @@ sources:
   Real:
     category: REAL
     architecture: REAL
-    repository: "CelebA / FFHQ"
-    checkpoint_url: null
-    manual_instructions: "MANUAL_DOWNLOAD_REQUIRED: Pristine real faces from CelebA or FFHQ datasets. Place 224x224 cropped face images into MFVLR_Dataset/images/real/."
+    repository: "https://huggingface.co/datasets/korexyz/celeba-hq-256x256"
+    checkpoint_url: "https://huggingface.co/datasets/korexyz/celeba-hq-256x256/resolve/main/data/validation-00000-of-00001.parquet"
+    filename: "celeba_hq_validation.parquet"
+    sha256: null
+    manual_instructions: "Pristine real faces from CelebA-HQ dataset (2,000 high-res faces)."
