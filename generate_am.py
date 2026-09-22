@@ -299,8 +299,22 @@ def run_am_generation(
                     "eyeglasses": "Eyeglasses",
                     "wavy_hair": "Wavy_Hair",
                     "young": "Young",
+                    "bangs": "Bangs",
+                    "male": "Male",
+                    "blond_hair": "Blond_Hair",
+                    "black_hair": "Black_Hair",
+                    "no_beard": "No_Beard",
+                    "pale_skin": "Pale_Skin",
+                    "bushy_eyebrows": "Bushy_Eyebrows",
                 }
-                celeb_attr = attr_map.get(attribute.lower(), "Smiling")
+                celeb_attr = attr_map.get(attribute.lower(), None)
+                if celeb_attr is None:
+                    for k in CelebAttrDataset.cls_to_id.keys():
+                        if k.lower() == attribute.lower() or k.lower().replace("_", "") == attribute.lower().replace("_", ""):
+                            celeb_attr = k
+                            break
+                if celeb_attr is None:
+                    celeb_attr = "Smiling"
                 cls_id = CelebAttrDataset.cls_to_id[celeb_attr]
 
                 cond_norm = diffae_cls_model.normalize(cond)
@@ -397,7 +411,7 @@ def main() -> int:
     parser.add_argument("--generator", type=str, required=True, choices=["DiffAE", "LatTrans", "IAFaces"], help="AM generator")
     parser.add_argument("--source-dir", type=str, default="MFVLR_Dataset/images/real", help="Directory containing source face images")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to generator model checkpoint")
-    parser.add_argument("--attribute", type=str, default="smile", choices=["smile", "glasses", "general"], help="Manipulation attribute")
+    parser.add_argument("--attribute", type=str, default="smile", help="Manipulation attribute (e.g. smile, glasses, young, wavy_hair, bangs, general)")
     parser.add_argument("--count", type=int, default=10, help="Number of images to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--dataset-root", type=str, default="MFVLR_Dataset", help="Root directory of MFVLR dataset")
