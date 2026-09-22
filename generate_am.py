@@ -287,6 +287,34 @@ def run_am_generation(
     else:
         indices = [idx for idx in range(count) if idx % num_shards == shard_id]
 
+    total_target = len(indices)
+
+    # Ultra-fast pre-scan existing files for Smart Resume (only when force=False)
+    if not force and dest_fake_dir.exists():
+        try:
+            existing_filenames = set(os.listdir(str(dest_fake_dir)))
+            pending_indices = []
+            for idx in indices:
+                sample_stem = f"{generator.lower()}_{idx:06d}"
+                fake_filename = f"{sample_stem}.png"
+                if fake_filename not in existing_filenames:
+                    pending_indices.append(idx)
+            existing_count = total_target - len(pending_indices)
+            if existing_count > 0:
+                logger.info(
+                    "Smart Resume: Found %d existing samples in %s. Skipping them and generating remaining %d/%d...",
+                    existing_count,
+                    dest_fake_dir,
+                    len(pending_indices),
+                    total_target,
+                )
+                indices = pending_indices
+                if not indices:
+                    logger.info("All %d requested samples already exist in %s. Generation complete!", total_target, dest_fake_dir)
+                    return []
+        except Exception as se:
+            logger.debug("Pre-scan failed, falling back to per-file check: %s", se)
+
     logger.info(
         "Starting AM generation for [%s]: %d samples (shard %d/%d, attribute='%s')",
         generator,
