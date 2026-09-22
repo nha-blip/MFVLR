@@ -505,6 +505,23 @@ def run_efs_generation(
                 sum(p.numel() for p in colldiff_model.parameters()),
             )
 
+            # Pre-cache sampler and conditioning to maximize inference speed across batches
+            from ldm.models.diffusion.ddim_confidence import DDIMConfidenceSampler
+            colldiff_sampler = DDIMConfidenceSampler(model=colldiff_model, return_confidence_map=False)
+            colldiff_mask_path = colldiff_repo / "test_data" / "256_masks" / "29980.png"
+            colldiff_input_text = "A photo of a face."
+            if colldiff_mask_path.exists():
+                from PIL import Image
+                import torch.nn.functional as F
+                with open(colldiff_mask_path, "rb") as f:
+                    m_img = Image.open(f).resize((32, 32), Image.NEAREST)
+                    flat = list(m_img.getdata())
+                flat_t = torch.tensor(flat)
+                colldiff_one_hot = F.one_hot(flat_t, num_classes=19).transpose(0, 1).unsqueeze(0).to(device)
+            else:
+                colldiff_one_hot = torch.zeros((1, 19, 1024), device=device)
+            colldiff_cond_cache = {}
+
     # Filter pending indices that need generation (for resume support)
     pending_indices = []
     for idx in indices:
@@ -739,10 +756,10 @@ def run_efs_generation(
         elif colldiff_model is not None and generator == "CollDiff":
             import time
             import psutil
-            import torch.nn.functional as F
 
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
+                torch.backends.cudnn.benchmark = True
             t_gen_start = time.time()
             gen_device = next(colldiff_model.parameters()).device
 
@@ -750,37 +767,28 @@ def run_efs_generation(
             if torch.cuda.is_available():
                 torch.cuda.manual_seed_all(batch_seed)
 
-            colldiff_repo = Path(__file__).resolve().parent / "external" / "colldiff"
-            mask_path = colldiff_repo / "test_data" / "256_masks" / "29980.png"
-            input_text = "A photo of a face."
-            if mask_path.exists():
-                from PIL import Image
-                with open(mask_path, "rb") as f:
-                    m_img = Image.open(f).resize((32, 32), Image.NEAREST)
-                    flat = list(m_img.getdata())
-                flat_t = torch.tensor(flat)
-                one_hot = F.one_hot(flat_t, num_classes=19).transpose(0, 1).unsqueeze(0).to(gen_device)
-            else:
-                one_hot = torch.zeros((1, 19, 1024), device=gen_device)
+            # Use cached conditioning tensor across batches to eliminate repeated BERT & encoder overhead
+            if cur_b not in colldiff_cond_cache:
+                condition = {
+                    "seg_mask": colldiff_one_hot.repeat(cur_b, 1, 1),
+                    "text": [colldiff_input_text.lower()] * cur_b,
+                }
+                with torch.no_grad():
+                    with colldiff_model.ema_scope("Plotting"):
+                        colldiff_cond_cache[cur_b] = colldiff_model.get_learned_conditioning(condition)
 
-            condition = {
-                "seg_mask": one_hot.repeat(cur_b, 1, 1),
-                "text": [input_text.lower()] * cur_b,
-            }
+            cond = colldiff_cond_cache[cur_b]
 
-            from ldm.models.diffusion.ddim_confidence import DDIMConfidenceSampler
             with torch.no_grad():
                 with colldiff_model.ema_scope("Plotting"):
-                    cond = colldiff_model.get_learned_conditioning(condition)
-                    sampler = DDIMConfidenceSampler(model=colldiff_model, return_confidence_map=False)
-                    z_0, _ = sampler.sample(
+                    z_0, _ = colldiff_sampler.sample(
                         S=steps,
                         batch_size=cur_b,
                         shape=(3, 64, 64),
                         conditioning=cond,
                         verbose=False,
                         eta=1.0,
-                        log_every_t=1,
+                        log_every_t=steps + 1,
                     )
                 x_samples = colldiff_model.decode_first_stage(z_0)
                 x_samples = torch.clamp((x_samples + 1.0) / 2.0, min=0.0, max=1.0)
