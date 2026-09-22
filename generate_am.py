@@ -40,6 +40,19 @@ logger = logging.getLogger("generate_am")
 VALID_AM_GENERATORS = {"DiffAE", "LatTrans", "IAFaces"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
+AVAILABLE_ATTRIBUTES = [
+    "smile",
+    "glasses",
+    "young",
+    "wavy_hair",
+    "bangs",
+    "blond_hair",
+    "black_hair",
+    "no_beard",
+    "pale_skin",
+    "bushy_eyebrows",
+]
+
 
 def apply_mock_attribute_manipulation(
     source_img: np.ndarray,
@@ -85,7 +98,7 @@ def run_am_generation(
     generator: str,
     source_dir: Path,
     checkpoint: Optional[Path] = None,
-    attribute: str = "smile",
+    attribute: str = "all",
     count: int = 10,
     seed: int = 42,
     dataset_root: Path = Path("MFVLR_Dataset"),
@@ -241,6 +254,12 @@ def run_am_generation(
         fake_filename = f"{sample_stem}.png"
         fake_path = dest_fake_dir / fake_filename
 
+        # If attribute is 'all', 'mixed', 'auto', or None, automatically cycle through all attributes
+        if attribute is None or attribute.lower() in {"all", "mixed", "auto", "any"}:
+            cur_attribute = AVAILABLE_ATTRIBUTES[idx % len(AVAILABLE_ATTRIBUTES)]
+        else:
+            cur_attribute = attribute
+
         # Ensure source image is in dest_source_dir
         dest_src_file = dest_source_dir / fake_filename
         if not dry_run and not dest_src_file.exists():
@@ -307,10 +326,10 @@ def run_am_generation(
                     "pale_skin": "Pale_Skin",
                     "bushy_eyebrows": "Bushy_Eyebrows",
                 }
-                celeb_attr = attr_map.get(attribute.lower(), None)
+                celeb_attr = attr_map.get(cur_attribute.lower(), None)
                 if celeb_attr is None:
                     for k in CelebAttrDataset.cls_to_id.keys():
-                        if k.lower() == attribute.lower() or k.lower().replace("_", "") == attribute.lower().replace("_", ""):
+                        if k.lower() == cur_attribute.lower() or k.lower().replace("_", "") == cur_attribute.lower().replace("_", ""):
                             celeb_attr = k
                             break
                 if celeb_attr is None:
@@ -353,18 +372,18 @@ def run_am_generation(
             logger.info(
                 "Official DiffAE sample %d (%s) generated in %.2fs | Peak VRAM: %.1f MB | RAM: %.1f MB",
                 idx,
-                attribute,
+                cur_attribute,
                 gen_duration,
                 peak_vram_mb,
                 ram_mb,
             )
         elif mock or checkpoint is None or not checkpoint.exists():
-            fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=attribute, seed=sample_seed)
+            fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
             sample_metrics = {"real_inference": False, "note": "mock"}
         else:
             logger.info("Running inference with checkpoint: %s", checkpoint)
-            fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=attribute, seed=sample_seed)
+            fake_bgr = apply_mock_attribute_manipulation(cv2.cvtColor(src_np, cv2.COLOR_RGB2BGR), attribute=cur_attribute, seed=sample_seed)
             Image.fromarray(cv2.cvtColor(fake_bgr, cv2.COLOR_BGR2RGB)).save(fake_path, format="PNG")
             sample_metrics = {"real_inference": False}
 
@@ -375,7 +394,7 @@ def run_am_generation(
             "architecture": "Diffusion" if generator == "DiffAE" else "GAN",
             "image_path": fake_path.relative_to(dataset_root).as_posix(),
             "source_image_path": dest_src_file.relative_to(dataset_root).as_posix(),
-            "attribute": attribute,
+            "attribute": cur_attribute,
             "seed": sample_seed,
             "checkpoint": str(autoenc_ckpt_path) if (diffae_model is not None and generator == "DiffAE") else (str(checkpoint) if checkpoint else "mock"),
             "shard_id": shard_id,
@@ -411,7 +430,7 @@ def main() -> int:
     parser.add_argument("--generator", type=str, required=True, choices=["DiffAE", "LatTrans", "IAFaces"], help="AM generator")
     parser.add_argument("--source-dir", type=str, default="MFVLR_Dataset/images/real", help="Directory containing source face images")
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to generator model checkpoint")
-    parser.add_argument("--attribute", type=str, default="smile", help="Manipulation attribute (e.g. smile, glasses, young, wavy_hair, bangs, general)")
+    parser.add_argument("--attribute", type=str, default="all", help="Manipulation attribute (default 'all' automatically cycles across all 10 attributes; or specify one: smile, glasses, young, wavy_hair, bangs, blond_hair)")
     parser.add_argument("--count", type=int, default=10, help="Number of images to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--dataset-root", type=str, default="MFVLR_Dataset", help="Root directory of MFVLR dataset")
