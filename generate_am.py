@@ -201,7 +201,13 @@ def run_am_generation(
 
     if output_dir is not None:
         dest_fake_dir = Path(output_dir)
-        if "images" in dest_fake_dir.parts:
+        # If output_dir is a root/general directory (does not already contain generator or AM subfolder),
+        # safely nest under images/AM/<generator> to prevent dumping tens of thousands of files in root.
+        parts_lower = [p.lower() for p in dest_fake_dir.parts]
+        if generator.lower() not in parts_lower and "am" not in parts_lower:
+            dest_fake_dir = dest_fake_dir / "images" / "AM" / generator
+            dest_source_dir = dest_fake_dir.parent.parent.parent / "source" / "AM" / generator
+        elif "images" in dest_fake_dir.parts:
             parts = list(dest_fake_dir.parts)
             img_idx = len(parts) - 1 - parts[::-1].index("images")
             parts[img_idx] = "source"
