@@ -131,7 +131,6 @@ def run_efs_generation(
     if not mock and not dry_run and generator == "DDPM":
         import time
         import psutil
-        import torch
         from diffusers import DDPMPipeline, DDIMScheduler
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -200,9 +199,16 @@ def run_efs_generation(
     if not mock and not dry_run and generator == "LatDiff":
         import time
         import psutil
-        import torch
 
         ldm_repo = Path(__file__).resolve().parent / "external" / "latent-diffusion"
+        if not (ldm_repo / "ldm").exists():
+            logger.info("Latent Diffusion repository not found at %s. Auto-cloning from CompVis/latent-diffusion...", ldm_repo)
+            import subprocess
+            ldm_repo.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                ["git", "clone", "https://github.com/CompVis/latent-diffusion.git", str(ldm_repo)],
+                check=True
+            )
         if str(ldm_repo) not in sys.path:
             sys.path.insert(0, str(ldm_repo))
 
@@ -223,6 +229,16 @@ def run_efs_generation(
         config_path = ldm_repo / "configs" / "latent-diffusion" / "celebahq-ldm-vq-4.yaml"
         config = OmegaConf.load(str(config_path))
         vq_f4_ckpt = Path("checkpoints/EFS/LatDiff/first_stage_models/vq-f4/model.ckpt")
+        if not vq_f4_ckpt.exists():
+            logger.info("First-stage VQ-f4 model not found at %s. Auto-downloading...", vq_f4_ckpt)
+            import urllib.request
+            import zipfile
+            vq_f4_ckpt.parent.mkdir(parents=True, exist_ok=True)
+            vq_zip = vq_f4_ckpt.parent / "vq-f4.zip"
+            urllib.request.urlretrieve("https://ommer-lab.com/files/latent-diffusion/vq-f4.zip", str(vq_zip))
+            with zipfile.ZipFile(vq_zip, "r") as zf:
+                zf.extractall(vq_f4_ckpt.parent)
+            logger.info("First-stage VQ-f4 model downloaded and extracted successfully.")
         config.model.params.first_stage_config.params.ckpt_path = str(vq_f4_ckpt.resolve())
 
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -270,7 +286,6 @@ def run_efs_generation(
         if pipe is not None and generator == "DDPM":
             import time
             import psutil
-            import torch
 
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
@@ -329,7 +344,6 @@ def run_efs_generation(
         elif sg3_model is not None and generator == "StyleGAN3":
             import time
             import psutil
-            import torch
 
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
@@ -392,7 +406,6 @@ def run_efs_generation(
         elif latdiff_model is not None and generator == "LatDiff":
             import time
             import psutil
-            import torch
 
             for idx in batch_ids:
                 sample_seed = seed + idx

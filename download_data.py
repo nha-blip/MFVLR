@@ -182,6 +182,26 @@ class CheckpointManager:
                 )
                 if success:
                     status_report["downloaded"].append({"generator": gen_name, "path": str(dest_file)})
+                    if dest_file.suffix.lower() == ".zip" and not dry_run:
+                        import zipfile
+                        logger.info("Extracting %s to %s ...", dest_file.name, dest_folder)
+                        with zipfile.ZipFile(dest_file, "r") as zf:
+                            zf.extractall(dest_folder)
+                        logger.info("Extracted %s successfully.", dest_file.name)
+
+                    # For LatDiff, also ensure the first stage VQ-f4 model is present
+                    if gen_name == "LatDiff" and not dry_run:
+                        vq_dir = dest_folder / "first_stage_models" / "vq-f4"
+                        vq_ckpt = vq_dir / "model.ckpt"
+                        if not vq_ckpt.exists() or force:
+                            vq_url = "https://ommer-lab.com/files/latent-diffusion/vq-f4.zip"
+                            vq_zip = vq_dir / "vq-f4.zip"
+                            logger.info("Downloading LatDiff first-stage VQ-f4 model...")
+                            if download_file(vq_url, vq_zip, force=force):
+                                import zipfile
+                                with zipfile.ZipFile(vq_zip, "r") as zf:
+                                    zf.extractall(vq_dir)
+                                logger.info("Extracted VQ-f4 model to %s successfully.", vq_dir)
                 else:
                     status_report["failed"].append({"generator": gen_name, "url": url})
             else:

@@ -16,8 +16,8 @@ sources:
     category: EFS
     architecture: Diffusion
     repository: "https://github.com/CompVis/latent-diffusion"
-    checkpoint_url: "https://ommer-lab.com/files/latent-diffusion/celebahq-ldm-vq-4.zip"
-    filename: "celebahq-ldm-vq-4.zip"
+    checkpoint_url: "https://ommer-lab.com/files/latent-diffusion/celeba.zip"
+    filename: "celeba.zip"
     sha256: null
     manual_instructions: "Download CelebA-HQ Latent Diffusion checkpoint from CompVis ommer-lab."
 
