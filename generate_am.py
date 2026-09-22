@@ -279,7 +279,32 @@ def run_am_generation(
             available_sources.append(src_file)
 
     if not available_sources:
-        raise FileNotFoundError(f"No source images found in {source_dir} and mock generation disabled.")
+        logger.info(
+            "No source images found in %s or fallback paths. Auto-downloading official real face dataset (wiki.zip from OpenRL/DeepFakeFace)...",
+            source_dir,
+        )
+        try:
+            from datasets.download_dataset import download_file, extract_zip, BASE_URL
+            auto_dest_dir = source_dir if "real" in str(source_dir) else (dataset_root / "images" / "real")
+            auto_dest_dir.mkdir(parents=True, exist_ok=True)
+            zip_dest = Path("/content/wiki.zip") if Path("/content").exists() else (dataset_root / "downloads" / "wiki.zip")
+            zip_dest.parent.mkdir(parents=True, exist_ok=True)
+            if not zip_dest.exists() or zip_dest.stat().st_size < 100 * 1024 * 1024:
+                download_file(BASE_URL + "wiki.zip", zip_dest)
+            extract_zip(zip_dest, auto_dest_dir)
+            available_sources = [p for p in auto_dest_dir.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS]
+            if available_sources:
+                logger.info("Successfully auto-downloaded and unpacked %d real source images!", len(available_sources))
+        except Exception as dl_err:
+            logger.warning("Auto-download failed (%s). Please download manually using: python datasets/download_dataset.py --categories wiki", dl_err)
+
+    if not available_sources:
+        raise FileNotFoundError(
+            f"No source images found in {source_dir}. "
+            "Please download real faces first with: "
+            "python datasets/download_dataset.py --categories wiki --data-dir MFVLR_Dataset "
+            "or: wget https://huggingface.co/datasets/OpenRL/DeepFakeFace/resolve/main/wiki.zip && unzip wiki.zip -d MFVLR_Dataset/images/real"
+        )
 
     # Calculate index range
     if start_index is not None and end_index is not None:
