@@ -124,6 +124,7 @@ def build_manifests(
     test_ratio: float = 0.1,
     seed: int = 42,
     max_per_category: Optional[int] = None,
+    categories: Optional[List[str]] = None,
 ) -> None:
     random.seed(seed)
     images_dir = data_dir / "images"
@@ -131,7 +132,8 @@ def build_manifests(
 
     all_samples: List[Dict] = []
 
-    for filename, meta in DATASET_FILES.items():
+    target_files = {k: v for k, v in DATASET_FILES.items() if not categories or v['category'] in categories or k in categories}
+    for filename, meta in target_files.items():
         cat = meta["category"]
         cat_dir = images_dir / cat
         if not cat_dir.exists():
@@ -213,6 +215,7 @@ def update_config(config_path: Path, data_dir: Path) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Download and prepare DeepFakeFace dataset.")
     parser.add_argument("--data-dir", type=str, default="data/DeepFakeFace", help="Directory to store dataset.")
+    parser.add_argument("--categories", nargs="+", default=None, help="Categories to process (e.g. wiki, text2img, inpainting, insight). Default: all.")
     parser.add_argument("--skip-download", action="store_true", help="Skip downloading zips if already present.")
     parser.add_argument("--skip-extract", action="store_true", help="Skip extracting zips.")
     parser.add_argument("--max-per-category", type=int, default=None, help="Limit images per category for smaller subset.")
@@ -227,7 +230,8 @@ def main():
     images_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Download each zip file first
-    for filename, meta in DATASET_FILES.items():
+    selected_files = {k: v for k, v in DATASET_FILES.items() if not args.categories or v['category'] in args.categories or k in args.categories}
+    for filename, meta in selected_files.items():
         zip_path = downloads_dir / filename
         if not args.skip_download:
             if zip_path.exists() and zip_path.stat().st_size > 100 * 1024 * 1024:
@@ -238,7 +242,7 @@ def main():
 
     # 2. Extract each zip file
     if not args.skip_extract:
-        for filename, meta in DATASET_FILES.items():
+        for filename, meta in selected_files.items():
             zip_path = downloads_dir / filename
             extract_target = images_dir / meta["category"]
             if not extract_target.exists() or len(list(extract_target.glob("*"))) == 0:
@@ -248,7 +252,22 @@ def main():
 
     # 3. Generate manifests
     print("\n--- Generating Manifests ---")
-    build_manifests(data_dir, max_per_category=args.max_per_category)
+    # Ensure images/real directory or symlink exists for AM source images
+    wiki_dir = images_dir / "wiki"
+    real_dir = images_dir / "real"
+    if wiki_dir.exists() and not real_dir.exists():
+        try:
+            real_dir.symlink_to(wiki_dir, target_is_directory=True)
+            print("[OK] Symlinked images/real -> images/wiki for AM generators")
+        except Exception:
+            try:
+                import shutil
+                shutil.copytree(wiki_dir, real_dir, dirs_exist_ok=True)
+                print("[OK] Copied images/wiki -> images/real")
+            except Exception as e:
+                print(f"[Warning] Could not link real directory: {e}")
+
+    build_manifests(data_dir, max_per_category=args.max_per_category, categories=args.categories)
 
     # 4. Update config
     if args.update_config:
