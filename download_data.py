@@ -123,7 +123,7 @@ def download_gdrive_file(
     force: bool = False,
     dry_run: bool = False,
 ) -> bool:
-    """Downloads a file from Google Drive via gdown."""
+    """Downloads a file from Google Drive via gdown, with auto-discovery from mounted Google Drive."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     if dest_path.exists() and dest_path.stat().st_size > 0 and not force:
         logger.info("File %s already exists. Skipping (use --force to overwrite).", dest_path.name)
@@ -133,13 +133,63 @@ def download_gdrive_file(
         logger.info("[DRY-RUN] Would download Google Drive ID %s -> %s", gdrive_id, dest_path)
         return True
 
+    # Check mounted Google Drive for existing personal copies to bypass download quotas
+    drive_roots = [
+        Path("/content/drive/MyDrive"),
+        Path("/content/drive/MyDrive/checkpoints"),
+        Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff"),
+        Path("/content/drive/MyDrive/checkpoints/AM/DiffAE"),
+        Path("/content/drive/MyDrive/GenFace"),
+        Path("/content/drive/MyDrive/GenFace/checkpoints/EFS/CollDiff"),
+        Path.home() / "Google Drive",
+    ]
+    name_patterns = [
+        dest_path.name,
+        f"Copy of {dest_path.name}",
+        f"Bản sao của {dest_path.name}",
+    ]
+    for d_root in drive_roots:
+        if d_root.exists():
+            for pat in name_patterns:
+                cand = d_root / pat
+                if cand.exists() and cand.is_file() and cand.stat().st_size > 1024:
+                    logger.info("Found %s in Google Drive at %s! Symlinking to %s...", dest_path.name, cand, dest_path)
+                    try:
+                        if dest_path.is_symlink() or dest_path.exists():
+                            dest_path.unlink()
+                        os.symlink(cand.resolve(), dest_path)
+                        return True
+                    except Exception:
+                        import shutil
+                        try:
+                            shutil.copyfile(str(cand), str(dest_path))
+                            return True
+                        except Exception as ce:
+                            logger.debug("Failed copy from %s: %s", cand, ce)
+
     try:
         import gdown
         logger.info("Downloading from Google Drive ID %s -> %s ...", gdrive_id, dest_path)
         output = gdown.download(id=gdrive_id, output=str(dest_path), quiet=False)
-        return output is not None and dest_path.exists() and dest_path.stat().st_size > 0
+        if output is not None and dest_path.exists() and dest_path.stat().st_size > 0:
+            return True
+        else:
+            logger.warning(
+                "\n[QUOTA_EXCEEDED] Google Drive limit reached for '%s'.\n"
+                "-> BROWSER BYPASS: Open https://drive.google.com/file/d/%s/view\n"
+                "   Click 3 dots -> 'Make a copy' (Tạo bản sao) to your Google Drive.\n"
+                "   Mount Drive in Colab ('from google.colab import drive; drive.mount(\"/content/drive\")'),\n"
+                "   and re-run download_data.py (it will auto-detect your copy).",
+                dest_path.name, gdrive_id
+            )
+            return False
     except Exception as e:
-        logger.error("gdown download failed for ID %s: %s (Ensure gdown is installed: pip install gdown)", gdrive_id, e)
+        logger.error(
+            "gdown download failed for ID %s (%s): %s\n"
+            "-> BROWSER BYPASS: Open https://drive.google.com/file/d/%s/view\n"
+            "   Click 3 dots -> 'Make a copy' (Tạo bản sao) to your Drive, then rerun download_data.py.",
+            gdrive_id, dest_path.name, e, gdrive_id
+        )
         return False
 
 
