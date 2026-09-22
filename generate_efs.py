@@ -346,6 +346,7 @@ def run_efs_generation(
             import psutil
 
             if torch.cuda.is_available():
+                torch.cuda.empty_cache()
                 torch.cuda.reset_peak_memory_stats()
             t_gen_start = time.time()
             gen_device = next(sg3_model.parameters()).device
@@ -353,8 +354,23 @@ def run_efs_generation(
             z = torch.from_numpy(np.random.RandomState(batch_seed).randn(cur_b, sg3_model.z_dim)).to(gen_device)
             label = torch.zeros([cur_b, sg3_model.c_dim], device=gen_device)
 
+            # StyleGAN3 generates high-res 1024x1024 images. Sub-batch chunking of 2 prevents CUDA OOM on 15GB GPUs (T4).
+            sub_b = min(cur_b, 2)
+            out_list = []
             with torch.no_grad():
-                img_tensors = sg3_model(z, label, truncation_psi=1.0, noise_mode='const')
+                for sub_start in range(0, cur_b, sub_b):
+                    sub_end = min(sub_start + sub_b, cur_b)
+                    try:
+                        sub_out = sg3_model(z[sub_start:sub_end], label[sub_start:sub_end], truncation_psi=1.0, noise_mode='const')
+                    except torch.OutOfMemoryError:
+                        logger.warning("CUDA OOM at sub-batch %d; clearing cache and falling back to single-image generation", sub_b)
+                        torch.cuda.empty_cache()
+                        sub_out_single = []
+                        for single_i in range(sub_start, sub_end):
+                            sub_out_single.append(sg3_model(z[single_i:single_i+1], label[single_i:single_i+1], truncation_psi=1.0, noise_mode='const'))
+                        sub_out = torch.cat(sub_out_single, dim=0)
+                    out_list.append(sub_out)
+            img_tensors = torch.cat(out_list, dim=0) if len(out_list) > 1 else out_list[0]
 
             total_duration = time.time() - t_gen_start
             per_img_duration = round(total_duration / cur_b, 3)
