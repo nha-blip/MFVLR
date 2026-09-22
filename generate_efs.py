@@ -36,6 +36,14 @@ import cv2
 import numpy as np
 import torch
 
+# Safe load monkeypatch for PyTorch 2.6+ where weights_only=True by default breaks legacy checkpoints
+_orig_torch_load = torch.load
+def _safe_torch_load(*args, **kwargs):
+    if "weights_only" not in kwargs:
+        kwargs["weights_only"] = False
+    return _orig_torch_load(*args, **kwargs)
+torch.load = _safe_torch_load
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
