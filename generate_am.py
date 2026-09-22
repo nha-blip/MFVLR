@@ -77,6 +77,32 @@ if "lmdb" not in sys.modules:
         _lmdb_mod.Environment = _DummyEnv
         sys.modules["lmdb"] = _lmdb_mod
 
+# pytorch_fid mock monkeypatch if not installed (DiffAE metrics.py imports fid_score for training evaluation)
+if "pytorch_fid" not in sys.modules:
+    try:
+        import pytorch_fid
+    except ImportError:
+        _pfid_mod = types.ModuleType("pytorch_fid")
+        _fid_score_mod = types.ModuleType("pytorch_fid.fid_score")
+        _fid_score_mod.calculate_fid_given_paths = lambda *args, **kwargs: 0.0
+        _pfid_mod.fid_score = _fid_score_mod
+        sys.modules["pytorch_fid"] = _pfid_mod
+        sys.modules["pytorch_fid.fid_score"] = _fid_score_mod
+
+# lpips mock monkeypatch if not installed (DiffAE metrics.py imports lpips for training evaluation)
+if "lpips" not in sys.modules:
+    try:
+        import lpips
+    except ImportError:
+        _lpips_mod = types.ModuleType("lpips")
+        class _DummyLPIPS(nn.Module):
+            def __init__(self, *args, **kwargs):
+                super().__init__()
+            def forward(self, *args, **kwargs):
+                return torch.zeros(1)
+        _lpips_mod.LPIPS = _DummyLPIPS
+        sys.modules["lpips"] = _lpips_mod
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
@@ -301,6 +327,38 @@ def run_am_generation(
                     exp_py.write_text(content, encoding="utf-8")
             except Exception as pe:
                 logger.debug("Could not patch experiment.py: %s", pe)
+
+        metrics_py = diffae_repo_path / "metrics.py"
+        if metrics_py.exists():
+            try:
+                m_content = metrics_py.read_text(encoding="utf-8")
+                changed = False
+                if "from pytorch_fid import fid_score" in m_content and "try:\n    from pytorch_fid import fid_score" not in m_content:
+                    m_content = m_content.replace(
+                        "from pytorch_fid import fid_score",
+                        "try:\n    from pytorch_fid import fid_score\nexcept Exception:\n    fid_score = None"
+                    )
+                    changed = True
+                if "import lpips" in m_content and "try:\n    import lpips" not in m_content:
+                    m_content = m_content.replace(
+                        "import lpips",
+                        "try:\n    import lpips\nexcept Exception:\n    lpips = None"
+                    )
+                    changed = True
+                if changed:
+                    metrics_py.write_text(m_content, encoding="utf-8")
+            except Exception as me:
+                logger.debug("Could not patch metrics.py: %s", me)
+
+        # Fallback dummy metrics module if metrics fails to import
+        if "metrics" not in sys.modules:
+            try:
+                import metrics
+            except Exception:
+                _metrics_mod = types.ModuleType("metrics")
+                _metrics_mod.evaluate_lpips = lambda *args, **kwargs: 0.0
+                _metrics_mod.evaluate_fid = lambda *args, **kwargs: 0.0
+                sys.modules["metrics"] = _metrics_mod
 
         from experiment import LitModel
         from experiment_classifier import ClsModel
