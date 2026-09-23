@@ -432,12 +432,27 @@ def run_efs_generation(
             Path("checkpoints/EFS/CollDiff"),
             Path("/content/MFVLR/checkpoints/EFS/CollDiff"),
             Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff"),
+            Path("/content/drive/MyDrive/checkpoints"),
             Path("/content/drive/MyDrive/GenFace/checkpoints/EFS/CollDiff"),
+            Path("/content/drive/MyDrive/GenFace"),
+            Path("/content/drive/MyDrive"),
+        ]
+        clean_target_names = [
+            "256_codiff_mask_text.ckpt",
+            "256_mask.ckpt",
+            "256_text.ckpt",
+            "256_vae.ckpt",
         ]
         for cdir in candidate_ckpt_dirs:
             if cdir.exists():
                 for ckpt_file in cdir.glob("*.ckpt"):
-                    dst = pretrained_dir / ckpt_file.name
+                    # Normalize 'Copy of ...' or 'Bản sao của ...' to canonical filenames
+                    canonical_name = ckpt_file.name
+                    for ctn in clean_target_names:
+                        if ctn in ckpt_file.name:
+                            canonical_name = ctn
+                            break
+                    dst = pretrained_dir / canonical_name
                     if not dst.exists() or (not dst.is_symlink() and dst.stat().st_size != ckpt_file.stat().st_size):
                         try:
                             if dst.is_symlink() or dst.exists():
@@ -454,10 +469,14 @@ def run_efs_generation(
 
         if checkpoint is None or not checkpoint.exists():
             candidates = [
-                Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
                 colldiff_repo / "pretrained" / "256_codiff_mask_text.ckpt",
+                Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
                 Path("/content/MFVLR/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
                 Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/checkpoints/256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/Bản sao của 256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/Copy of 256_codiff_mask_text.ckpt"),
             ]
             for c in candidates:
                 if c.exists():
