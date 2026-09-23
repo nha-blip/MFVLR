@@ -428,24 +428,37 @@ def run_efs_generation(
         # Ensure colldiff_repo / pretrained has all checkpoints linked or copied
         pretrained_dir = colldiff_repo / "pretrained"
         pretrained_dir.mkdir(parents=True, exist_ok=True)
-        candidate_ckpt_dirs = [
-            Path("checkpoints/EFS/CollDiff"),
-            Path("/content/MFVLR/checkpoints/EFS/CollDiff"),
-            Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff"),
-            Path("/content/drive/MyDrive/checkpoints"),
-            Path("/content/drive/MyDrive/GenFace/checkpoints/EFS/CollDiff"),
-            Path("/content/drive/MyDrive/GenFace"),
-            Path("/content/drive/MyDrive"),
-        ]
+        import shutil
+
         clean_target_names = [
             "256_codiff_mask_text.ckpt",
             "256_mask.ckpt",
             "256_text.ckpt",
             "256_vae.ckpt",
         ]
+
+        # Clean up any accidental directory creation with .ckpt name
+        for ctn in clean_target_names:
+            p_dst = pretrained_dir / ctn
+            if p_dst.exists() and p_dst.is_dir() and not p_dst.is_symlink():
+                logger.warning("Directory found at %s. Removing invalid directory.", p_dst)
+                shutil.rmtree(p_dst)
+
+        candidate_ckpt_dirs = [
+            Path("/content/drive/MyDrive"),
+            Path("/content/drive/MyDrive/checkpoints"),
+            Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff"),
+            Path("/content/drive/MyDrive/GenFace/checkpoints/EFS/CollDiff"),
+            Path("/content/drive/MyDrive/GenFace"),
+            Path("/content/MFVLR/checkpoints/EFS/CollDiff"),
+            Path("checkpoints/EFS/CollDiff"),
+        ]
+
         for cdir in candidate_ckpt_dirs:
             if cdir.exists():
                 for ckpt_file in cdir.glob("*.ckpt"):
+                    if not ckpt_file.is_file():
+                        continue
                     # Normalize 'Copy of ...' or 'Bản sao của ...' to canonical filenames
                     canonical_name = ckpt_file.name
                     for ctn in clean_target_names:
@@ -453,40 +466,47 @@ def run_efs_generation(
                             canonical_name = ctn
                             break
                     dst = pretrained_dir / canonical_name
-                    if not dst.exists() or (not dst.is_symlink() and dst.stat().st_size != ckpt_file.stat().st_size):
+                    if dst.exists() and dst.is_dir() and not dst.is_symlink():
+                        shutil.rmtree(dst)
+                    elif dst.is_symlink() or dst.exists():
                         try:
-                            if dst.is_symlink() or dst.exists():
-                                dst.unlink()
-                            os.symlink(ckpt_file.resolve(), dst)
-                            logger.info("Symlinked CollDiff checkpoint: %s -> %s", ckpt_file.name, dst)
+                            dst.unlink()
                         except Exception:
-                            import shutil
-                            try:
-                                shutil.copyfile(str(ckpt_file), str(dst))
-                                logger.info("Copied CollDiff checkpoint: %s -> %s", ckpt_file.name, dst)
-                            except Exception as ce:
-                                logger.debug("Could not link/copy %s to %s: %s", ckpt_file, dst, ce)
+                            pass
+                    try:
+                        os.symlink(ckpt_file.resolve(), dst)
+                        logger.info("Symlinked CollDiff checkpoint: %s -> %s", ckpt_file.name, dst)
+                    except Exception:
+                        try:
+                            shutil.copyfile(str(ckpt_file), str(dst))
+                            logger.info("Copied CollDiff checkpoint: %s -> %s", ckpt_file.name, dst)
+                        except Exception as ce:
+                            logger.debug("Could not link/copy %s to %s: %s", ckpt_file, dst, ce)
 
-        if checkpoint is None or not checkpoint.exists():
+        # Reset checkpoint if a directory was mistakenly passed (e.g. output dir)
+        if checkpoint is not None and not checkpoint.is_file():
+            logger.warning("Passed checkpoint '%s' is a directory, not a .ckpt file. Auto-discovering valid checkpoint...", checkpoint)
+            checkpoint = None
+
+        if checkpoint is None or not checkpoint.is_file():
             candidates = [
                 colldiff_repo / "pretrained" / "256_codiff_mask_text.ckpt",
-                Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
-                Path("/content/MFVLR/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
-                Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
-                Path("/content/drive/MyDrive/checkpoints/256_codiff_mask_text.ckpt"),
-                Path("/content/drive/MyDrive/256_codiff_mask_text.ckpt"),
                 Path("/content/drive/MyDrive/Bản sao của 256_codiff_mask_text.ckpt"),
                 Path("/content/drive/MyDrive/Copy of 256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/256_codiff_mask_text.ckpt"),
+                Path("/content/drive/MyDrive/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
+                Path("/content/MFVLR/checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
+                Path("checkpoints/EFS/CollDiff/256_codiff_mask_text.ckpt"),
             ]
             for c in candidates:
-                if c.exists():
+                if c.is_file():
                     checkpoint = c
                     break
 
-        if checkpoint is None or not checkpoint.exists():
+        if checkpoint is None or not checkpoint.is_file():
             if not mock:
                 raise FileNotFoundError(
-                    "CollDiff checkpoint '256_codiff_mask_text.ckpt' not found in checkpoints/EFS/CollDiff/! "
+                    "CollDiff checkpoint '256_codiff_mask_text.ckpt' not found in checkpoints/EFS/CollDiff/ or Google Drive! "
                     "Please download all official CollDiff checkpoints by running:\n"
                     "  !python download_data.py --generator CollDiff"
                 )
@@ -502,10 +522,22 @@ def run_efs_generation(
 
             config_path = colldiff_repo / "configs" / "256_codiff_mask_text.yaml"
             config = OmegaConf.load(str(config_path))
+
+            # Resolve checkpoints to absolute filepaths
+            seg_ckpt = (colldiff_repo / "pretrained" / "256_mask.ckpt").resolve()
+            if not seg_ckpt.is_file():
+                for alt_s in [Path("/content/drive/MyDrive/Bản sao của 256_mask.ckpt"), Path("/content/drive/MyDrive/256_mask.ckpt")]:
+                    if alt_s.is_file(): seg_ckpt = alt_s.resolve(); break
+
+            text_ckpt = (colldiff_repo / "pretrained" / "256_text.ckpt").resolve()
+            if not text_ckpt.is_file():
+                for alt_t in [Path("/content/drive/MyDrive/Bản sao của 256_text.ckpt"), Path("/content/drive/MyDrive/256_text.ckpt")]:
+                    if alt_t.is_file(): text_ckpt = alt_t.resolve(); break
+
             config.model.params.seg_mask_ldm_config_path = str((colldiff_repo / "configs" / "256_mask.yaml").resolve())
-            config.model.params.seg_mask_ldm_ckpt_path = str((colldiff_repo / "pretrained" / "256_mask.ckpt").resolve())
+            config.model.params.seg_mask_ldm_ckpt_path = str(seg_ckpt)
             config.model.params.text_ldm_config_path = str((colldiff_repo / "configs" / "256_text.yaml").resolve())
-            config.model.params.text_ldm_ckpt_path = str((colldiff_repo / "pretrained" / "256_text.ckpt").resolve())
+            config.model.params.text_ldm_ckpt_path = str(text_ckpt)
 
             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             old_cwd = os.getcwd()
