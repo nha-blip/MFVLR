@@ -21,9 +21,8 @@ STAGE_DIR = Path(os.environ.get(
 STATE_PATH = Path("/kaggle/working/stylegan3_autosave_state.json")
 BACKUP_EVERY = int(os.environ.get("STYLEGAN3_BACKUP_EVERY", "500"))
 POLL_SECONDS = int(os.environ.get("STYLEGAN3_BACKUP_POLL", "60"))
-DATASET_SLUG = os.environ.get("KAGGLE_DATASET_SLUG", "YOUR_USERNAME/stylegan3")
-DATASET_EXISTS = os.environ.get("KAGGLE_DATASET_EXISTS", "false").lower() == "true"
-DATASET_LICENSE = os.environ.get("KAGGLE_DATASET_LICENSE", "")
+DATASET_SLUG = os.environ.get("KAGGLE_DATASET_SLUG", "quangnhat6/stylegan3")
+DATASET_EXISTS = os.environ.get("KAGGLE_DATASET_EXISTS", "true").lower() == "true"
 
 
 def load_kaggle_secrets() -> None:
@@ -71,13 +70,18 @@ def snapshot(files: list[Path]) -> int:
 
 
 def publish(count: int, created: bool) -> None:
-    (STAGE_DIR / "dataset-metadata.json").write_text(json.dumps({
-        "title": "StyleGAN3 Generated Face Images",
-        "id": DATASET_SLUG,
-        "licenses": [{"name": DATASET_LICENSE}],
-    }, indent=2), encoding="utf-8")
-
     action = "version" if (DATASET_EXISTS or created) else "create"
+    metadata = {"id": DATASET_SLUG}
+    # License is required when creating a new dataset. For this existing dataset,
+    # leave it out so the version update preserves its current metadata.
+    if action == "create":
+        raise ValueError(
+            "This autosaver is configured for the existing dataset. Set "
+            "KAGGLE_DATASET_EXISTS=true; creating a new dataset requires a license."
+        )
+    (STAGE_DIR / "dataset-metadata.json").write_text(
+        json.dumps(metadata, indent=2), encoding="utf-8"
+    )
     subprocess.run([
         "kaggle", "datasets", action,
         "-p", str(STAGE_DIR),
@@ -89,11 +93,6 @@ def publish(count: int, created: bool) -> None:
 def main() -> None:
     if shutil.which("kaggle") is None:
         subprocess.run([sys.executable, "-m", "pip", "install", "-q", "kaggle"], check=True)
-    if "YOUR_USERNAME" in DATASET_SLUG:
-        raise ValueError("Set KAGGLE_DATASET_SLUG to username/dataset-slug.")
-    if not DATASET_LICENSE:
-        raise ValueError("Set KAGGLE_DATASET_LICENSE to the applicable Kaggle license ID.")
-
     load_kaggle_secrets()
     state = json.loads(STATE_PATH.read_text()) if STATE_PATH.exists() else {
         "uploaded_count": 0,
