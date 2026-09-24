@@ -45,6 +45,37 @@ def _safe_torch_load(*args, **kwargs):
 torch.load = _safe_torch_load
 
 
+def load_drive_uploaded_indices(manifest_path: Optional[Path]) -> set[int]:
+    """Load the set of sample indices already confirmed on Google Drive."""
+    if manifest_path is None or not manifest_path.exists():
+        return set()
+    with manifest_path.open("r", encoding="utf-8") as stream:
+        data = json.load(stream)
+    return {int(index) for index in data.get("uploaded_indices", [])}
+
+
+def enqueue_drive_upload(image_path: Path, queue_dir: Optional[Path]) -> None:
+    """Atomically publish a ready marker after a complete image is present."""
+    if queue_dir is None:
+        return
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    marker = queue_dir / f"{image_path.stem}.ready"
+    if marker.exists():
+        return
+    temporary = marker.with_suffix(".tmp")
+    temporary.write_text(image_path.name, encoding="utf-8")
+    os.replace(temporary, marker)
+
+
+def save_png_atomic(image: np.ndarray, image_path: Path) -> None:
+    """Write a PNG to a temporary file and expose it only after completion."""
+    temporary = image_path.with_name(f".{image_path.stem}.part.png")
+    if not cv2.imwrite(str(temporary), image):
+        temporary.unlink(missing_ok=True)
+        raise OSError(f"Could not write generated image: {image_path}")
+    os.replace(temporary, image_path)
+
+
 def ensure_pytorch_lightning_compat() -> None:
     """Provides backward-compatibility shim for PyTorch Lightning 2.0+ (used by ldm in LatDiff and CollDiff)."""
     try:
@@ -198,6 +229,8 @@ def run_efs_generation(
     mock: bool = False,
     dry_run: bool = False,
     force: bool = False,
+    drive_manifest: Optional[Path] = None,
+    drive_queue_dir: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """Runs EFS generation with deterministic indexing and provenance recording."""
     if generator not in VALID_EFS_GENERATORS:
@@ -230,6 +263,8 @@ def run_efs_generation(
     if not dry_run:
         gen_out_dir.mkdir(parents=True, exist_ok=True)
 
+    drive_uploaded_indices = load_drive_uploaded_indices(drive_manifest)
+
     # Ultra-fast pre-scan existing files for Smart Resume (only when force=False)
     if not force and gen_out_dir.exists():
         try:
@@ -237,7 +272,13 @@ def run_efs_generation(
             pending_indices = []
             for idx in indices:
                 sample_stem = f"{generator.lower()}_{idx:06d}.png"
-                if sample_stem not in existing_filenames:
+                if generator == "StyleGAN3" and idx in drive_uploaded_indices:
+                    continue
+                if sample_stem in existing_filenames:
+                    if generator == "StyleGAN3" and not dry_run:
+                        enqueue_drive_upload(gen_out_dir / sample_stem, drive_queue_dir)
+                    continue
+                else:
                     pending_indices.append(idx)
             existing_count = len(indices) - len(pending_indices)
             if existing_count > 0:
@@ -581,8 +622,12 @@ def run_efs_generation(
         if dry_run:
             logger.info("[DRY-RUN] Would generate %s -> %s (seed=%d)", generator, file_path, seed + idx)
             continue
+        if generator == "StyleGAN3" and idx in drive_uploaded_indices:
+            continue
         if not force and file_path.exists() and file_path.stat().st_size > 0:
             logger.debug("File %s exists, skipping.", filename)
+            if generator == "StyleGAN3":
+                enqueue_drive_upload(file_path, drive_queue_dir)
             continue
         pending_indices.append(idx)
 
@@ -700,7 +745,8 @@ def run_efs_generation(
                 img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
 
                 file_path = gen_out_dir / f"{generator.lower()}_{idx:06d}.png"
-                cv2.imwrite(str(file_path), img)
+                save_png_atomic(img, file_path)
+                enqueue_drive_upload(file_path, drive_queue_dir)
 
                 sample_metrics = {
                     "inference_time_sec": per_img_duration,
@@ -952,6 +998,10 @@ def main() -> int:
     parser.add_argument("--mock", action="store_true", help="Generate synthetic mock samples without checkpoint")
     parser.add_argument("--dry-run", action="store_true", help="Print plan without generating files")
     parser.add_argument("--force", action="store_true", help="Force re-generation even if output images already exist")
+    parser.add_argument("--drive-manifest", type=Path, default=None,
+                        help="JSON manifest of StyleGAN3 indices already uploaded to Drive")
+    parser.add_argument("--drive-queue-dir", type=Path, default=None,
+                        help="Directory where completed StyleGAN3 images are queued for Drive upload")
 
     args = parser.parse_args()
 
@@ -972,6 +1022,8 @@ def main() -> int:
             mock=args.mock,
             dry_run=args.dry_run,
             force=args.force,
+            drive_manifest=args.drive_manifest,
+            drive_queue_dir=args.drive_queue_dir,
         )
         return 0
     except Exception as e:
