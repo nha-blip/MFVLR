@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import json
 import os
 import re
@@ -62,8 +63,20 @@ def configure_rclone() -> None:
         from kaggle_secrets import UserSecretsClient
 
         encoded = UserSecretsClient().get_secret("RCLONE_CONFIG_B64")
+        # Kaggle Secrets may preserve pasted line breaks or spaces. They are not
+        # meaningful in Base64, so remove whitespace while remaining strict about
+        # all other characters (e.g. accidental quotes or a wrong value).
+        encoded = "".join(encoded.split())
+        try:
+            config_bytes = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise RuntimeError(
+                "Kaggle Secret RCLONE_CONFIG_B64 is not valid Base64. Recreate it "
+                "from the raw rclone.conf bytes; paste only the Base64 output, "
+                "without quotes or a 'data:' prefix."
+            ) from exc
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_bytes(base64.b64decode(encoded, validate=True))
+        config_path.write_bytes(config_bytes)
         config_path.chmod(0o600)
     os.environ["RCLONE_CONFIG"] = str(config_path)
 
