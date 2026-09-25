@@ -272,10 +272,10 @@ def run_efs_generation(
             pending_indices = []
             for idx in indices:
                 sample_stem = f"{generator.lower()}_{idx:06d}.png"
-                if generator == "StyleGAN3" and idx in drive_uploaded_indices:
+                if generator in {"StyleGAN3", "LatDiff"} and idx in drive_uploaded_indices:
                     continue
                 if sample_stem in existing_filenames:
-                    if generator == "StyleGAN3" and not dry_run:
+                    if generator in {"StyleGAN3", "LatDiff"} and not dry_run:
                         enqueue_drive_upload(gen_out_dir / sample_stem, drive_queue_dir)
                     continue
                 else:
@@ -622,11 +622,11 @@ def run_efs_generation(
         if dry_run:
             logger.info("[DRY-RUN] Would generate %s -> %s (seed=%d)", generator, file_path, seed + idx)
             continue
-        if generator == "StyleGAN3" and idx in drive_uploaded_indices:
+        if generator in {"StyleGAN3", "LatDiff"} and idx in drive_uploaded_indices:
             continue
         if not force and file_path.exists() and file_path.stat().st_size > 0:
             logger.debug("File %s exists, skipping.", filename)
-            if generator == "StyleGAN3":
+            if generator in {"StyleGAN3", "LatDiff"}:
                 enqueue_drive_upload(file_path, drive_queue_dir)
             continue
         pending_indices.append(idx)
@@ -815,7 +815,8 @@ def run_efs_generation(
                 img_np = (x_samples[b_i].permute(1, 2, 0).cpu().numpy() * 255.0).astype(np.uint8)
                 img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
                 img = cv2.resize(img_bgr, (224, 224), interpolation=cv2.INTER_AREA)
-                cv2.imwrite(str(file_path), img)
+                save_png_atomic(img, file_path)
+                enqueue_drive_upload(file_path, drive_queue_dir)
 
                 sample_metrics = {
                     "inference_time_sec": per_img_duration,
