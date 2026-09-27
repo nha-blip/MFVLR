@@ -119,25 +119,36 @@ def ensure_colldiff_dependencies() -> None:
     try:
         import taming
     except (ImportError, ModuleNotFoundError):
-        external_dir = Path(__file__).resolve().parent / "external"
-        taming_repo = external_dir / "taming-transformers"
-        if not taming_repo.exists():
-            logger.info("taming module not found. Auto-cloning CompVis/taming-transformers...")
-            import subprocess
-            try:
-                external_dir.mkdir(parents=True, exist_ok=True)
-                subprocess.run(
-                    ["git", "clone", "--depth", "1", "https://github.com/CompVis/taming-transformers.git", str(taming_repo)],
-                    check=True,
-                )
-            except Exception as e:
-                logger.warning("Git clone taming-transformers failed: %s. Attempting pip install...", e)
+        logger.info("taming module not found. Attempting to install taming-transformers...")
+        import subprocess
+        # Priority 1: pip install from PyPI (fast, no git required)
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "install", "taming-transformers-rom1504"], check=False)
+            import taming
+        except Exception:
+            pass
+
+        try:
+            import taming
+        except (ImportError, ModuleNotFoundError):
+            external_dir = Path(__file__).resolve().parent / "external"
+            taming_repo = external_dir / "taming-transformers"
+            if not taming_repo.exists():
+                logger.info("Auto-cloning CompVis/taming-transformers...")
                 try:
-                    subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/CompVis/taming-transformers.git"], check=False)
-                except Exception:
-                    pass
-        if taming_repo.exists() and str(taming_repo) not in sys.path:
-            sys.path.insert(0, str(taming_repo))
+                    external_dir.mkdir(parents=True, exist_ok=True)
+                    subprocess.run(
+                        ["git", "clone", "--depth", "1", "https://github.com/CompVis/taming-transformers.git", str(taming_repo)],
+                        check=True,
+                    )
+                except Exception as e:
+                    logger.warning("Git clone taming-transformers failed: %s. Attempting pip install...", e)
+                    try:
+                        subprocess.run([sys.executable, "-m", "pip", "install", "git+https://github.com/CompVis/taming-transformers.git"], check=False)
+                    except Exception:
+                        pass
+            if taming_repo.exists() and str(taming_repo) not in sys.path:
+                sys.path.insert(0, str(taming_repo))
 
     # 2. openai/CLIP
     try:
